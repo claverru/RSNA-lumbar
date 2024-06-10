@@ -40,7 +40,8 @@
 	],
 	"mounts": [
 		"source=${localEnv:HOME}/.gitconfig,target=/home/docker_user/.gitconfig,type=bind",
-		"source=${localEnv:HOME}/.kaggle,target=/home/docker_user/.kaggle,type=bind"
+		"source=${localEnv:HOME}/.kaggle,target=/home/docker_user/.kaggle,type=bind",
+		"source=${localEnv:HOME}/.ssh,target=/home/docker_user/.ssh,type=bind"
 	],
 	"workspaceMount": "source=${localWorkspaceFolder},target=/home/docker_user/workspace,type=bind,consistency=delegated",
 	"workspaceFolder": "/home/docker_user/workspace"
