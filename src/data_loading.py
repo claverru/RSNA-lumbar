@@ -14,8 +14,6 @@ from src import constants
 
 
 CLASS2LABEL = {"Normal/Mild": 0, "Moderate": 1, "Severe": 2}
-# df.reset_index().groupby(["study_id", "series_id"])["instance_number"].nunique().describe()
-MAX_SERIES_SIZE = 10
 
 
 def load_dcm_img(path: Path) -> np.ndarray:
@@ -44,23 +42,15 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         idx = self.index2id[index]
-        study_id, series_id = idx
         chunk: pd.DataFrame = self.df.loc[idx]
-        series_dir = self.img_dir / str(study_id) / str(series_id)
-        imgs = []
-        for instance_number in chunk["instance_number"].unique():
-            img_path = (series_dir / str(instance_number)).with_suffix(".dcm")
-            img = load_dcm_img(img_path)
-            if self.transforms is not None:
-                img = self.transforms(image=img)["image"]
-            imgs.append(img)
+        img_path = (self.img_dir / str(idx[0]) / str(idx[1]) / str(idx[2])).with_suffix(".dcm")
+        img = load_dcm_img(img_path)
+        if self.transforms is not None:
+            img = self.transforms(image=img)["image"]
 
-        imgs = torch.stack(imgs, 0)
-        x = torch.nn.functional.pad(imgs, (0, 0, 0, 0, 0, 0, 0, MAX_SERIES_SIZE - imgs.shape[0]))
-        mask = torch.tensor([True] * imgs.shape[0] + [False] * (MAX_SERIES_SIZE - imgs.shape[0]))
         d = chunk.set_index("condition_level")["severity"].to_dict()
         y_true = {k: torch.tensor(CLASS2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
-        return x, y_true, mask
+        return img, y_true
 
 
 def get_transforms(img_size):
@@ -87,7 +77,7 @@ def load_df(coor_path: Path = constants.COOR_PATH, train_path: Path = constants.
 
     result = train.merge(coor, how="inner", on=["study_id", "condition_level"])
 
-    return result.set_index(["study_id", "series_id"]).sort_index()
+    return result.set_index(["study_id", "series_id", "instance_number"]).sort_index()
 
 
 class DataModule(L.LightningDataModule):
@@ -97,7 +87,7 @@ class DataModule(L.LightningDataModule):
             train_path: Path = constants.TRAIN_PATH,
             img_dir: Path = constants.TRAIN_IMG_DIR,
             img_size: int = 256,
-            batch_size: int = 16,
+            batch_size: int = 64,
             num_workers: int = 8,
         ):
         super().__init__()
@@ -149,8 +139,7 @@ class DataModule(L.LightningDataModule):
 if __name__ == "__main__":
     dm = DataModule()
     dm.setup("fit")
-    for x, y, mask in dm.val_dataloader():
+    for x, y in dm.val_dataloader():
         print(x.shape)
-        print(mask.shape)
         print({k: v.shape for k, v in y.items()})
         break
