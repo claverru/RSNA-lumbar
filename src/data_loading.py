@@ -1,7 +1,8 @@
 from pathlib import Path
-from typing import Optional
+import random
+from typing import Dict, Optional, Tuple
 
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedGroupKFold
 import albumentations as A
 import lightning as L
 import numpy as np
@@ -9,6 +10,8 @@ import pandas as pd
 import pydicom
 import torch
 from albumentations.pytorch import ToTensorV2
+import torchvision
+import torchvision.transforms.functional
 
 from src import constants
 
@@ -30,25 +33,45 @@ def load_dcm_img(path: Path) -> np.ndarray:
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(
-        self, df: pd.DataFrame, img_dir: Path = constants.TRAIN_IMG_DIR, transforms: Optional[A.Compose] = None
+        self,
+        df: pd.DataFrame,
+        img_dir: Path = constants.TRAIN_IMG_DIR,
+        train: bool = False,
+        transforms: Optional[A.Compose] = None
     ):
         self.df = df
         self.img_dir = img_dir
+        self.train = train
         self.transforms = transforms
         self.index2id = {i: idx for i, idx in enumerate(self.df.index.unique())}
 
     def __len__(self):
         return len(self.index2id)
 
+    @staticmethod
+    def hflip(img: torch.Tensor, d: Dict[str, str]) -> Tuple[torch.Tensor, Dict[str, str]]:
+        img = torchvision.transforms.functional.hflip(img)
+        for k in list(d):
+            if "left" in k:
+                d[k.replace("left", "right")] = d.pop(k)
+            if "right" in k:
+                d[k.replace("right", "left")] = d.pop(k)
+        return img, d
+
     def __getitem__(self, index):
         idx = self.index2id[index]
         chunk: pd.DataFrame = self.df.loc[idx]
         img_path = (self.img_dir / str(idx[0]) / str(idx[1]) / str(idx[2])).with_suffix(".dcm")
         img = load_dcm_img(img_path)
+
         if self.transforms is not None:
             img = self.transforms(image=img)["image"]
 
         d = chunk.set_index("condition_level")["severity"].to_dict()
+
+        if self.train and random.random() < 0.5:
+            img, d = self.hflip(img, d)
+
         y_true = {k: torch.tensor(CLASS2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
         return img, y_true
 
@@ -86,12 +109,16 @@ class DataModule(L.LightningDataModule):
             coor_path: Path = constants.COOR_PATH,
             train_path: Path = constants.TRAIN_PATH,
             img_dir: Path = constants.TRAIN_IMG_DIR,
+            n_splits: int = 5,
+            this_split: int = 0,
             img_size: int = 256,
             batch_size: int = 64,
             num_workers: int = 8,
         ):
         super().__init__()
         self.img_dir = img_dir
+        self.n_splits = n_splits
+        self.this_split = this_split
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_size = img_size
@@ -100,16 +127,20 @@ class DataModule(L.LightningDataModule):
     def prepare_data(self):
         pass
 
+    def split(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        strats = self.df["condition_level"] + "_" + self.df["severity"]
+        groups = self.df.reset_index()["study_id"]
+        skf = StratifiedGroupKFold(n_splits=self.n_splits, shuffle=True)
+        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
+            if i == self.this_split:
+                break
+        return self.df.iloc[train_ids], self.df.iloc[val_ids]
+
     def setup(self, stage: str):
         if stage == "fit":
-            strats = (self.df["condition_level"] + self.df["severity"]).to_numpy()
-            skf = StratifiedKFold(n_splits=5, shuffle=True)
-            for train_ids, val_ids in skf.split(strats, strats):
-                break
-            train_df = self.df.iloc[train_ids]
-            val_df = self.df.iloc[val_ids]
-            self.train_ds = Dataset(train_df, self.img_dir, get_transforms(self.img_size))
-            self.val_ds = Dataset(val_df, self.img_dir, get_transforms(self.img_size))
+            train_df, val_df = self.split()
+            self.train_ds = Dataset(train_df, self.img_dir, train=True, transforms=get_transforms(self.img_size))
+            self.val_ds = Dataset(val_df, self.img_dir, train=False, transforms=get_transforms(self.img_size))
 
         if stage == "test":
             pass

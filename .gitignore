@@ -166,3 +166,5 @@ cython_debug/
 data/
 lightning_logs/
 trash.py
+checkpoints/
+models/

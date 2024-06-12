@@ -1,26 +1,33 @@
+import random
+
+from lightning.pytorch.cli import LightningCLI
 import lightning as L
-from src import model, data_loading
+import numpy as np
+
 import torch
 
 
 torch.set_float32_matmul_precision("high")
 
 
-if __name__ == "__main__":
+class CustomLightningCLI(LightningCLI):
+    def add_arguments_to_parser(self, parser):
+        parser.add_argument('--monitor', type=str)
+        parser.add_argument('--monitor_mode', type=str)
 
-    module = model.LightningModule()
-    data_module = data_loading.DataModule()
 
-    trainer = L.Trainer(
-        max_epochs=30,
-        accelerator="gpu",
-        accumulate_grad_batches=32,
-        benchmark=True,
-        precision="16-mixed",
-        callbacks=[
-            L.pytorch.callbacks.EarlyStopping(monitor="val_loss", patience=5, mode="min"),
-            L.pytorch.callbacks.ModelCheckpoint(monitor="val_loss", mode="min", filename="{epoch}_{val_loss:.4f}")
-        ]
+def get_random_seed():
+    max_seed_value = np.iinfo(np.uint32).max
+    min_seed_value = np.iinfo(np.uint32).min
+    return random.randint(min_seed_value, max_seed_value)
+
+
+if __name__ == '__main__':
+    cli = CustomLightningCLI(
+        L.LightningModule,
+        L.LightningDataModule,
+        seed_everything_default=get_random_seed(),
+        subclass_mode_model=True,
+        subclass_mode_data=True,
+        parser_kwargs={'parser_mode': 'omegaconf'},
     )
-
-    trainer.fit(module, data_module)

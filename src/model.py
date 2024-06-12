@@ -19,15 +19,17 @@ class Model(torch.nn.Module):
 
 
 class LightningModule(L.LightningModule):
-    def __init__(self, arch: str = "resnet34", lr: float = 1e-3):
+    def __init__(self, arch: str = "resnet34"):
         super().__init__()
-        self.model = Model(arch)
-        self.model.eval()
-        self.lr = lr
-        self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1)
+        self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
+        self.backbone = timm.create_model(arch, pretrained=True, num_classes=0)
+        n_feats = self.backbone.num_features
+        self.heads = torch.nn.ModuleDict({out: torch.nn.Linear(n_feats, 3) for out in constants.CONDITION_LEVEL})
 
     def forward(self, x):
-        return self.model(x)
+        feats = self.backbone(x)
+        outs = {k: head(feats) for k, head in self.heads.items()}
+        return outs
 
     def training_step(self, batch, batch_idx):
         x, y_true_dict = batch
@@ -52,7 +54,3 @@ class LightningModule(L.LightningModule):
             loss += self.loss_f(y_pred, y_true)
         self.log('val_loss', loss, on_epoch=True, prog_bar=True, on_step=False)
         return loss
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        return optimizer
