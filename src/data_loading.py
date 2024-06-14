@@ -16,9 +16,6 @@ import torchvision.transforms.functional
 from src import constants
 
 
-CLASS2LABEL = {"Normal/Mild": 0, "Moderate": 1, "Severe": 2}
-
-
 def load_dcm_img(path: Path) -> np.ndarray:
     dicom = pydicom.read_file(path)
     data: np.ndarray = dicom.pixel_array
@@ -72,7 +69,7 @@ class Dataset(torch.utils.data.Dataset):
         if self.train and random.random() < 0.5:
             img, d = self.hflip(img, d)
 
-        y_true = {k: torch.tensor(CLASS2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
+        y_true = {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
         return img, y_true
 
 
@@ -116,7 +113,7 @@ class DataModule(L.LightningDataModule):
             num_workers: int = 8,
         ):
         super().__init__()
-        self.img_dir = img_dir
+        self.img_dir = Path(img_dir)
         self.n_splits = n_splits
         self.this_split = this_split
         self.batch_size = batch_size
@@ -146,7 +143,8 @@ class DataModule(L.LightningDataModule):
             pass
 
         if stage == "predict":
-            pass
+            _, val_df = self.split()
+            self.predict_ds = Dataset(val_df, self.img_dir, train=False, transforms=get_transforms(self.img_size))
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -164,6 +162,13 @@ class DataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             worker_init_fn=lambda wid: np.random.seed(np.random.get_state()[1][0] + wid),
+        )
+
+    def predict_dataloader(self) -> torch.utils.data.DataLoader:
+        return torch.utils.data.DataLoader(
+            dataset=self.predict_ds,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
         )
 
 

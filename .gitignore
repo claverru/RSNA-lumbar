@@ -165,6 +165,6 @@ cython_debug/
 *.zip
 data/
 lightning_logs/
-trash.py
+trash/
 checkpoints/
 models/

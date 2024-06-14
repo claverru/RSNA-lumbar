@@ -9,6 +9,9 @@ TEST_IMG_DIR = ROOT / "train_images"
 COOR_PATH = ROOT / "train_label_coordinates.csv"
 TRAIN_PATH = ROOT / "train.csv"
 
+VAL_PREDS_NAME = "val_preds.csv"
+
+SEVERITY2LABEL = {"Normal/Mild": 0, "Moderate": 1, "Severe": 2}
 
 CONDITION_LEVEL = [
     'left_neural_foraminal_narrowing_l1_l2',
