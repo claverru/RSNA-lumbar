@@ -5,19 +5,6 @@ import timm
 from src import constants
 
 
-class Model(torch.nn.Module):
-    def __init__(self, arch: str):
-        super().__init__()
-        self.backbone = timm.create_model(arch, pretrained=True, num_classes=0)
-        n_feats = self.backbone.num_features
-        self.heads = torch.nn.ModuleDict({out: torch.nn.Linear(n_feats, 3) for out in constants.CONDITION_LEVEL})
-
-    def forward(self, x):
-        feats = self.backbone(x)
-        outs = {k: head(feats) for k, head in self.heads.items()}
-        return outs
-
-
 class LightningModule(L.LightningModule):
     def __init__(self, arch: str = "resnet34"):
         super().__init__()

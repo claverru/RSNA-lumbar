@@ -10,14 +10,8 @@ import tqdm
 import tyro
 import yaml
 
-from src import model, data_loading, constants
+from src import model, data_loading, constants, utils
 
-
-def cat_preds(preds: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
-    result = {}
-    for k in preds[0]:
-        result[k] = torch.concat([pred[k] for pred in preds], dim=0)
-    return result
 
 
 def parse_preds(preds_dict: Dict[str, torch.Tensor], index2id: Dict[int, Tuple[int, int, int]]) -> pd.DataFrame:
@@ -56,7 +50,7 @@ def main(ckpt_dir: Path):
         preds_list.append(preds)
         target_list.append(y)
 
-    preds_dict = cat_preds(preds_list)
+    preds_dict = utils.cat_preds(preds_list)
     preds_dict = {k: v.cpu().numpy() for k, v in preds_dict.items()}
 
     preds_df = parse_preds(preds_dict, L_datamodule.predict_ds.index2id)

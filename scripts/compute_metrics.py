@@ -32,6 +32,7 @@ def merge_index_series(s: pd.Series) -> pd.Series:
 def inference_logic(df: pd.DataFrame) -> pd.DataFrame:
     df = df.groupby(["study_id", "series_id", "condition_level"])[SEVERITY_CLASSES].mean()
     df = df.reset_index().groupby(["study_id", "condition_level"])[SEVERITY_CLASSES].mean()
+    df[SEVERITY_CLASSES] = softmax(df[SEVERITY_CLASSES].values)
     df = merge_index_df(df)
     return df
 
@@ -75,7 +76,7 @@ def main(ckpt_dir: Path = Path("checkpoints/effnetb4_380_w/version_1"), train_pa
 
     df = pd.merge(train_df, preds_df, left_index=True, right_index=True)
 
-    df[SEVERITY_CLASSES] = softmax(df[SEVERITY_CLASSES].values)
+
     df["sample_weight"] = df["label"].map({0: 1, 1: 2, 2: 4})
 
     loss = compute_loss(df)
