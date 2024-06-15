@@ -66,7 +66,7 @@ def compute_loss(df: pd.DataFrame) -> float:
     print(losses)
     return sum(losses) / len(losses)
 
-def main(ckpt_dir: Path = Path("checkpoints/effnetb4_380_w/version_1"), train_path: Path = constants.TRAIN_PATH):
+def main(ckpt_dir: Path = DEFAULT_CKPT_DIR, train_path: Path = constants.TRAIN_PATH):
     train_df = pd.read_csv(train_path, index_col="study_id").stack().map(constants.SEVERITY2LABEL)
     preds_df = pd.read_csv(ckpt_dir / constants.VAL_PREDS_NAME)
 
