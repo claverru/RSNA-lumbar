@@ -1,4 +1,4 @@
-python scripts/train.py fit -c config.yaml --data.this_split 0 --seed_everything 128
+# python scripts/train.py fit -c config.yaml --data.this_split 0 --seed_everything 128
 python scripts/train.py fit -c config.yaml --data.this_split 1 --seed_everything 128
 python scripts/train.py fit -c config.yaml --data.this_split 2 --seed_everything 128
 python scripts/train.py fit -c config.yaml --data.this_split 3 --seed_everything 128

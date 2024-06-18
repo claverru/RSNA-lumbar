@@ -1,11 +1,8 @@
-python scripts/val_inference.py --ckpt-dir checkpoints/effnetb4_380_w/version_1
-python scripts/val_inference.py --ckpt-dir checkpoints/effnetb4_380_w/version_2
-python scripts/val_inference.py --ckpt-dir checkpoints/effnetb4_380_w/version_3
-python scripts/val_inference.py --ckpt-dir checkpoints/effnetb4_380_w/version_4
-python scripts/val_inference.py --ckpt-dir checkpoints/effnetb4_380_w/version_5
+rm metrics.json
+echo '{"mean": 0.0}' > metrics.json
 
-python scripts/compute_metrics.py --ckpt-dir checkpoints/effnetb4_380_w/version_1
-python scripts/compute_metrics.py --ckpt-dir checkpoints/effnetb4_380_w/version_2
-python scripts/compute_metrics.py --ckpt-dir checkpoints/effnetb4_380_w/version_3
-python scripts/compute_metrics.py --ckpt-dir checkpoints/effnetb4_380_w/version_4
-python scripts/compute_metrics.py --ckpt-dir checkpoints/effnetb4_380_w/version_5
+python scripts/compute_metrics.py --ckpt-dir lightning_logs/version_0
+python scripts/compute_metrics.py --ckpt-dir lightning_logs/version_1
+python scripts/compute_metrics.py --ckpt-dir lightning_logs/version_2
+python scripts/compute_metrics.py --ckpt-dir lightning_logs/version_3
+python scripts/compute_metrics.py --ckpt-dir lightning_logs/version_4

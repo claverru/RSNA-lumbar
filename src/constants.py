@@ -11,6 +11,8 @@ TRAIN_PATH = ROOT / "train.csv"
 
 VAL_PREDS_NAME = "val_preds.csv"
 
+CONDITIONS = ["spinal", "foraminal", "subarticular"]
+
 SEVERITY2LABEL = {"Normal/Mild": 0, "Moderate": 1, "Severe": 2}
 
 CONDITION_LEVEL = [
