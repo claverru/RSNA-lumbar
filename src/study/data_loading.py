@@ -20,6 +20,7 @@ class Dataset(torch.utils.data.Dataset):
         train_df: pd.DataFrame,
         desc_df: pd.DataFrame,
         img_size: int,
+        do_hflip: bool,
         img_dir: Path,
         transforms: A.Compose
     ):
@@ -28,6 +29,7 @@ class Dataset(torch.utils.data.Dataset):
         self.desc_df = desc_df
         self.img_dir = img_dir
         self.img_size = img_size
+        self.do_flip = do_hflip
         self.transforms = transforms
         self.desc_index = set(desc_df.index)
 
@@ -57,6 +59,25 @@ class Dataset(torch.utils.data.Dataset):
         d: dict = self.train_df.loc[study_id].set_index("condition_level")["severity"].to_dict()
         return {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
 
+    def hflip(self, X: torch.Tensor, labels: dict):
+        if np.random.uniform() < 0.5:
+            return X, labels
+
+        new_ks = []
+        for k in labels:
+            if "right" in k:
+                new_k = k.replace("right", "left")
+            elif "left" in k:
+                new_k = k.replace("left", "right")
+            else:
+                new_k = k
+            new_ks.append(new_k)
+        new_labels = {k: v for k, v in zip(new_ks, labels.values())}
+
+        new_X = X.flip(-1)
+
+        return new_X, new_labels
+
     def __getitem__(self, index):
         study_id = self.study_ids[index]
         target = self.get_labels(study_id)
@@ -71,11 +92,12 @@ class Dataset(torch.utils.data.Dataset):
                 imgs[..., i] = img
 
             imgs = self.transforms(image=imgs)["image"]
-            if imgs.shape[-1] < study_constants.IMGS_PER_DESC:
-                imgs = torch.nn.functional.pad(imgs, (0, 0, 0, 0, 0, study_constants.IMGS_PER_DESC - imgs.shape[-1]))
             series_imgs.append(imgs)
 
         X = torch.stack(series_imgs, dim=0)
+
+        if self.do_flip:
+            X, target = self.hflip(X, target)
 
         return X, target
 
@@ -87,6 +109,20 @@ def get_transforms(img_size):
             A.Normalize(
                 mean = ((0.485, 0.456, 0.406) * study_constants.IMGS_PER_DESC)[:study_constants.IMGS_PER_DESC],
                 std = ((0.229, 0.224, 0.225) * study_constants.IMGS_PER_DESC)[:study_constants.IMGS_PER_DESC],
+            ),
+            ToTensorV2(),
+        ]
+    )
+
+A.ElasticTransform
+
+def get_aug_transforms(img_size):
+        return A.Compose(
+        [
+            #
+            A.Normalize(
+                mean = ((0.485, 0.456, 0.406) * 100)[:study_constants.IMGS_PER_DESC],
+                std = ((0.229, 0.224, 0.225) * 100)[:study_constants.IMGS_PER_DESC],
             ),
             ToTensorV2(),
         ]
@@ -132,14 +168,16 @@ class DataModule(L.LightningDataModule):
                 self.train_df,
                 self.desc_df,
                 self.img_size,
+                True,
                 self.img_dir,
-                transforms=get_transforms(self.img_size)
+                transforms=get_aug_transforms(self.img_size)
             )
             self.val_ds = Dataset(
                 val_study_ids,
                 self.train_df,
                 self.desc_df,
                 self.img_size,
+                False,
                 self.img_dir,
                 transforms=get_transforms(self.img_size)
             )
@@ -148,15 +186,7 @@ class DataModule(L.LightningDataModule):
             pass
 
         if stage == "predict":
-            _, val_study_ids = self.split()
-            self.predict_ds = Dataset(
-                val_study_ids,
-                self.train_df,
-                self.desc_df,
-                self.img_size,
-                self.img_dir,
-                transforms=get_transforms(self.img_size)
-            )
+            pass
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -174,13 +204,6 @@ class DataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             worker_init_fn=lambda wid: np.random.seed(np.random.get_state()[1][0] + wid),
-        )
-
-    def predict_dataloader(self) -> torch.utils.data.DataLoader:
-        return torch.utils.data.DataLoader(
-            dataset=self.predict_ds,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
         )
 
 
