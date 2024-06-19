@@ -189,4 +189,5 @@ if __name__ == "__main__":
     dm.setup("fit")
 
     for x, y in dm.train_dataloader():
-        print(x.shape, y.shape)
+        print(x.shape)
+        print({k: v.shape for k, v in y.items()})

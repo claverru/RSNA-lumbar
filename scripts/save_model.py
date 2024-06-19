@@ -7,7 +7,7 @@ import tyro
 import lightning as L
 import yaml
 
-from src.image import model
+from src.study import model, constants as study_constants
 
 
 class Ensemble(L.LightningModule):
@@ -41,7 +41,7 @@ def save(checkpoints_dir: Path, out_path: Path):
     modules, img_size = load_from_checkpoints_dir(checkpoints_dir)
     print("---->", out_path)
     ens = Ensemble(modules)
-    x = torch.randn(1, 3, img_size, img_size)
+    x = torch.randn(1, 3, study_constants.IMGS_PER_DESC, img_size, img_size)
     ens.to_torchscript(out_path, "trace", x, strict=False)
 
 
