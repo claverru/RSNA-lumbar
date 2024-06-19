@@ -114,7 +114,6 @@ def get_transforms(img_size):
         ]
     )
 
-A.ElasticTransform
 
 def get_aug_transforms(img_size):
         return A.Compose(
