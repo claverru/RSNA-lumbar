@@ -7,7 +7,7 @@ import tyro
 import lightning as L
 import yaml
 
-from src import model
+from src.image import model
 
 
 class Ensemble(L.LightningModule):

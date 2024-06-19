@@ -10,7 +10,8 @@ import tqdm
 import tyro
 import yaml
 
-from src import model, data_loading, constants, utils
+from src.image import data_loading, model
+from src import constants, utils
 
 
 

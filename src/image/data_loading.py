@@ -7,25 +7,12 @@ import albumentations as A
 import lightning as L
 import numpy as np
 import pandas as pd
-import pydicom
 import torch
 from albumentations.pytorch import ToTensorV2
 import torchvision
 import torchvision.transforms.functional
 
-from src import constants
-
-
-def load_dcm_img(path: Path) -> np.ndarray:
-    dicom = pydicom.read_file(path)
-    data: np.ndarray = dicom.pixel_array
-    if dicom.PhotometricInterpretation == "MONOCHROME1":
-        data = np.amax(data) - data
-    data = data - np.min(data)
-    data = data / np.max(data)
-    data = (data * 255).astype(np.uint8)
-    data = data[..., None].repeat(3, -1)
-    return data
+from src import constants, utils
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -59,7 +46,7 @@ class Dataset(torch.utils.data.Dataset):
         idx = self.index2id[index]
         chunk: pd.DataFrame = self.df.loc[idx]
         img_path = (self.img_dir / str(idx[0]) / str(idx[1]) / str(idx[2])).with_suffix(".dcm")
-        img = load_dcm_img(img_path)
+        img = utils.load_dcm_img(img_path)
 
         if self.transforms is not None:
             img = self.transforms(image=img)["image"]
@@ -90,10 +77,7 @@ def load_df(coor_path: Path = constants.COOR_PATH, train_path: Path = constants.
     norm_level = coor.pop("level").str.lower().str.replace("/", "_")
     coor["condition_level"] = norm_cond + "_" + norm_level
 
-    train = pd.read_csv(train_path)
-    col_map = {0: "severity", "level_1": "condition_level"}
-    train = train.set_index("study_id").stack().reset_index().rename(columns=col_map)
-    train.name = "train"
+    train = utils.load_train(train_path)
 
     result = train.merge(coor, how="inner", on=["study_id", "condition_level"])
 

@@ -21,7 +21,6 @@ class LightningModule(L.LightningModule):
         outs = {k: head(feats) for k, head in self.heads.items()}
         return outs
 
-
     def do_loss(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]):
         losses = {}
         for condition in constants.CONDITIONS:

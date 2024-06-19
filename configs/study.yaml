@@ -1,5 +1,6 @@
 monitor: val_loss
 monitor_mode: min
+seed_everything: 128
 
 optimizer:
   class_path: torch.optim.Adam
@@ -7,7 +8,7 @@ optimizer:
     lr: 1e-03
 
 model:
-  class_path: src.model.LightningModule
+  class_path: src.study.model.LightningModule
   init_args:
     arch: tf_efficientnet_b4.ns_jft_in1k
 
@@ -34,13 +35,13 @@ trainer:
   accelerator: gpu
   precision: 16-mixed
   benchmark: True
-  accumulate_grad_batches: 1
+  accumulate_grad_batches: 8
   max_epochs: 10000
 
 data:
-  class_path: src.data_loading.DataModule
+  class_path: src.study.data_loading.DataModule
   init_args:
     img_size: 380
-    batch_size: 64
+    batch_size: 8
 
 ckpt_path: null
