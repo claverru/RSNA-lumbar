@@ -31,6 +31,7 @@ trainer:
         unfreeze_backbone_at_epoch: 1
         backbone_initial_ratio_lr: 0.1
         should_align: True
+    - class_path: src.image.writer.Writer
 
   accelerator: gpu
   precision: 16-mixed

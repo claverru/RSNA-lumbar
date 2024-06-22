@@ -60,6 +60,28 @@ class Dataset(torch.utils.data.Dataset):
         return img, y_true
 
 
+class PredictDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        img_dir: Path = constants.TRAIN_IMG_DIR,
+        transforms: Optional[A.Compose] = None
+    ):
+        self.df = df
+        self.img_dir = img_dir
+        self.transforms = transforms
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, index):
+        study_id, series_id, instance_number = self.df.iloc[index].to_list()
+        img_path = (self.img_dir / str(study_id) / str(series_id) / str(instance_number)).with_suffix(".dcm")
+        img = utils.load_dcm_img(img_path)
+        img = self.transforms(image=img)["image"]
+        return img
+
+
 def get_transforms(img_size):
     return A.Compose(
         [
@@ -127,8 +149,10 @@ class DataModule(L.LightningDataModule):
             pass
 
         if stage == "predict":
-            _, val_df = self.split()
-            self.predict_ds = Dataset(val_df, self.img_dir, train=False, transforms=get_transforms(self.img_size))
+            train_df, _ = self.split()
+            imgs_df = utils.get_images_df(self.img_dir)
+            imgs_df = imgs_df[~imgs_df.set_index(train_df.index.names).index.isin(train_df.index)].reset_index(drop=True)
+            self.predict_ds = PredictDataset(imgs_df, self.img_dir, transforms=get_transforms(self.img_size))
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(

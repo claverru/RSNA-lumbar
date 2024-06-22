@@ -39,3 +39,14 @@ def load_train(train_path: Path = constants.TRAIN_PATH) -> pd.DataFrame:
     train = train.set_index("study_id").stack().reset_index().rename(columns=col_map)
     train.name = "train"
     return train
+
+
+def get_images_df(img_dir: Path = constants.TRAIN_IMG_DIR) -> pd.DataFrame:
+    def get_record(img_path):
+        return {
+            "study_id": int(img_path.parent.parent.stem),
+            "series_id": int(img_path.parent.stem),
+            "instance_number": int(img_path.stem),
+        }
+    records = [get_record(path) for path in img_dir.rglob("*.dcm")]
+    return pd.DataFrame.from_dict(records).sort_values(["study_id", "series_id", "instance_number"])
