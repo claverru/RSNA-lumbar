@@ -10,10 +10,10 @@ import cv2
 from src import constants
 
 
-def cat_preds(preds: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+def cat_preds(preds: List[Dict[str, torch.Tensor]], f=lambda x: torch.concat(x, dim=0)) -> Dict[str, torch.Tensor]:
     result = {}
     for k in preds[0]:
-        result[k] = torch.concat([pred[k] for pred in preds], dim=0)
+        result[k] = f([pred[k] for pred in preds])
     return result
 
 

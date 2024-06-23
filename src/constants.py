@@ -10,6 +10,8 @@ COOR_PATH = ROOT / "train_label_coordinates.csv"
 TRAIN_PATH = ROOT / "train.csv"
 DESC_PATH = ROOT / "train_series_descriptions.csv"
 
+FEATS_PATH = ROOT / "feats.parquet"
+
 VAL_PREDS_NAME = "val_preds.csv"
 
 CONDITIONS = ["spinal", "foraminal", "subarticular"]
