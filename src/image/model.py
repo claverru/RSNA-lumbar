@@ -20,27 +20,28 @@ class LightningModule(L.LightningModule):
         outs = {k: head(feats) for k, head in self.heads.items()}
         return outs
 
-    def training_step(self, batch, batch_idx):
-        x, y_true_dict = batch
-        y_pred_dict = self.forward(x)
+    def do_loss(self, y_true_dict, y_pred_dict):
         loss = 0.0
+        n = 0
         for k, y_true in y_true_dict.items():
             if (y_true == -1).all():
                 continue
             y_pred = y_pred_dict[k]
             loss += self.loss_f(y_pred, y_true)
+            n += 1
+        return loss / n
+
+    def training_step(self, batch, batch_idx):
+        x, y_true_dict = batch
+        y_pred_dict = self.forward(x)
+        loss = self.do_loss(y_true_dict, y_pred_dict)
         self.log('train_loss', loss, on_epoch=True, prog_bar=True, on_step=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y_true_dict = batch
         y_pred_dict = self.forward(x)
-        loss = 0.0
-        for k, y_true in y_true_dict.items():
-            if (y_true == -1).all():
-                continue
-            y_pred = y_pred_dict[k]
-            loss += self.loss_f(y_pred, y_true)
+        loss = self.do_loss(y_true_dict, y_pred_dict)
         self.log('val_loss', loss, on_epoch=True, prog_bar=True, on_step=False)
         return loss
 
