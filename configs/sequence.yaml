@@ -8,13 +8,12 @@ optimizer:
     lr: 1e-03
 
 lr_scheduler:
-  class_path: ReduceLROnPlateau
+  class_path: lightning.pytorch.cli.ReduceLROnPlateau
   init_args:
     factor: 0.1
-    patience: 1
+    patience: 0
     monitor: ${monitor}
     mode: ${monitor_mode}
-    verbose: True
 
 model:
   class_path: src.sequence.model.LightningModule
@@ -44,6 +43,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
+  log_every_n_steps: 50
 
   accelerator: gpu
   precision: 16-mixed
