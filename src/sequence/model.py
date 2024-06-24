@@ -7,16 +7,7 @@ from src import constants
 
 
 def get_lstm(i, o, n, d):
-    return torch.nn.LSTM(i, o, n, dropout=d, bidirectional=True, batch_first=True)
-
-
-def get_block():
-    return torch.nn.Sequential(
-        torch.nn.Linear(5, 20),
-        torch.nn.ReLU(),
-        torch.nn.Linear(20, 1),
-        torch.nn.ReLU()
-    )
+    return torch.nn.GRU(i, o, n, dropout=d, bidirectional=True)
 
 
 class LightningModule(L.LightningModule):
@@ -25,16 +16,31 @@ class LightningModule(L.LightningModule):
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
 
-        self.flat = torch.nn.ModuleDict({c: get_block() for c in constants.CONDITIONS})
-        self.seq = torch.nn.ModuleDict({c: get_lstm(1793, emb_dim, lstms, dropout) for c in constants.CONDITIONS})
+        self.seq = torch.nn.ModuleDict({c: get_lstm(1792 * 5 + 1, emb_dim, lstms, dropout) for c in constants.CONDITIONS})
         self.heads = torch.nn.ModuleDict({cl: torch.nn.Linear(emb_dim * 2 * 3, 3) for cl in constants.CONDITION_LEVEL})
 
-    def forward(self, x: Dict[str, torch.Tensor]) -> torch.Tensor:
-        flat = {k: m(i).squeeze() for (k, m), (_, i) in zip(self.flat.items(), x.items())}
-        seq = {k: m(i)[0] for (k, m), (_, i) in zip(self.seq.items(), flat.items())}
+    @staticmethod
+    def train_rnn_pool(module, packed_seqs):
+        out = module(packed_seqs)[0]
+        out, _ = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True, padding_value=-100)
+        out = out.max(1)[0]
+        return out
 
-        pooled = {k: v.max(1)[0] for k, v in seq.items()}
-        cat = torch.concat(list(pooled.values()), dim=1)
+    def train_forward(self, x: Dict[str, torch.nn.utils.rnn.PackedSequence]) -> Dict[str, torch.Tensor]:
+        seq = {k: self.train_rnn_pool(m, i) for (k, m), (_, i) in zip(self.seq.items(), x.items())}
+        cat = torch.concat(list(seq.values()), dim=1)
+        outs = {k: head(cat) for k, head in self.heads.items()}
+        return outs
+
+    @staticmethod
+    def rnn_pool(module, packed_seqs):
+        out = module(packed_seqs)[0]
+        out = out.max(0)[0]
+        return out
+
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        seq = {k: self.rnn_pool(m, i) for (k, m), (_, i) in zip(self.seq.items(), x.items())}
+        cat = torch.concat(list(seq.values()), dim=1)
         outs = {k: head(cat) for k, head in self.heads.items()}
         return outs
 
@@ -87,26 +93,28 @@ class LightningModule(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y_true_dict = batch
-        y_pred_dict = self.forward(x)
+        y_pred_dict = self.train_forward(x)
         losses = self.do_loss(y_true_dict, y_pred_dict)
+        batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
 
         for k, v in losses.items():
-            self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False)
+            self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
 
         loss = sum(losses.values()) / len(losses)
-        self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y_true_dict = batch
-        y_pred_dict = self.forward(x)
+        y_pred_dict = self.train_forward(x)
         losses = self.do_loss(y_true_dict, y_pred_dict)
+        batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
 
         for k, v in losses.items():
-            self.log(f"val_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False)
+            self.log(f"val_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
 
         loss = sum(losses.values()) / len(losses)
-        self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
+        self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
 
         return loss

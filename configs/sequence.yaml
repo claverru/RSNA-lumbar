@@ -7,6 +7,15 @@ optimizer:
   init_args:
     lr: 1e-03
 
+lr_scheduler:
+  class_path: ReduceLROnPlateau
+  init_args:
+    factor: 0.1
+    patience: 1
+    monitor: ${monitor}
+    mode: ${monitor_mode}
+    verbose: True
+
 model:
   class_path: src.sequence.model.LightningModule
   init_args:
@@ -16,18 +25,25 @@ model:
 
 trainer:
   logger:
+    class_path: CSVLogger
+    init_args:
+      save_dir: lightning_logs/
+      name: ""
   enable_checkpointing: true
   callbacks:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 1
+        patience: 2
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         monitor: ${monitor}
         mode: ${monitor_mode}
         filename: '{epoch}_{${monitor}:.4f}'
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: epoch
 
   accelerator: gpu
   precision: 16-mixed

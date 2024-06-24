@@ -41,18 +41,29 @@ class Dataset(torch.utils.data.Dataset):
 
             i_cols = ["series_id", "instance_number", "version"]
             chunk = chunk.set_index(i_cols).reindex(unique_siv, fill_value=0.0)
-            chunk = chunk.reset_index()
-            chunk["instance_number"] = chunk.groupby("series_id")["instance_number"].apply(lambda x: x/x.max()).reset_index(drop=True)
-            values = chunk[["instance_number"] + self.fcols].values.astype(np.float32)
-            values = values.reshape(-1, 5, values.shape[-1]).transpose(0, 2, 1)
+
+
+            values = chunk.values.astype(np.float32)
+            #augmentation
+            values *= np.random.rand(values.shape[0], 1) > self.aug
+
+            values = values.reshape(-1, values.shape[-1] * 5)
+
+            pos_enc = pd.DataFrame.from_records(
+                chunk.index.droplevel(-1).unique()).groupby(0)[1].apply(lambda x: x/x.max()
+            ).values[:, None].astype(np.float32)
+
+            values = np.concatenate([pos_enc, values], 1)
+
             return values
 
         else:
-            return np.zeros((1, len(self.fcols) + 1, 5), dtype=np.float32)
+            return np.zeros((1, len(self.fcols) * 5 + 1), dtype=np.float32)
 
     def do_aug(self, X):
         for k, v in X.items():
-            keep_mask = torch.rand(v.shape[0], 1, v.shape[-1]) > self.aug
+            keep_mask = torch.rand(v.shape[0], 5) > self.aug
+            keep_mask = keep_mask[..., None].repeat(1, 1, v.shape[-1] // 5).reshape(keep_mask.shape[0], -1)
             X[k] = X[k] * keep_mask
         return X
 
@@ -62,9 +73,6 @@ class Dataset(torch.utils.data.Dataset):
         X = {}
         for description in constants.DESCRIPTIONS:
             X[description] = torch.tensor(self.get_feats(study_id, description))
-
-        if self.aug > 0:
-            X = self.do_aug(X)
 
         return X, target
 
@@ -82,9 +90,13 @@ def pad_sequences(sequences):
     return torch.nn.utils.rnn.pad_sequence(sequences, batch_first=True)
 
 
+def pack_sequences(sequences):
+    return torch.nn.utils.rnn.pack_sequence(sequences, enforce_sorted=False)
+
+
 def collate_fn(data: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]]):
     Xs, targets = zip(*data)
-    Xs = utils.cat_preds(Xs, pad_sequences)
+    Xs = utils.cat_preds(Xs, pack_sequences)
     targets = utils.cat_preds(targets)
     return Xs, targets
 
@@ -153,9 +165,9 @@ class DataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    dm = DataModule()
+    dm = DataModule(num_workers=1)
     dm.setup("fit")
     for x, y in dm.train_dataloader():
         print("---------------------------------------")
-        print({k: (v.shape, v.dtype) for k, v in x.items()})
+        print({k: (v.data.shape, type(v)) for k, v in x.items()})
         print({k: (v.shape, v.dtype) for k, v in y.items()})
