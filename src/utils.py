@@ -49,4 +49,10 @@ def get_images_df(img_dir: Path = constants.TRAIN_IMG_DIR) -> pd.DataFrame:
             "instance_number": int(img_path.stem),
         }
     records = [get_record(path) for path in img_dir.rglob("*.dcm")]
-    return pd.DataFrame.from_dict(records).sort_values(["study_id", "series_id", "instance_number"])
+    sort_cols = ["study_id", "series_id", "instance_number"]
+    return pd.DataFrame.from_dict(records).sort_values(sort_cols).reset_index(drop=True)
+
+
+def get_image_path(study_id, series_id, instance_number, img_dir = constants.TRAIN_IMG_DIR):
+    img_path = img_dir / str(study_id) / str(series_id) / f"{instance_number}.dcm"
+    return img_path
