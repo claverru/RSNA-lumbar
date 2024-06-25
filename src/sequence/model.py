@@ -6,18 +6,49 @@ import lightning as L
 from src import constants
 
 
-def get_lstm(i, o, n, d):
-    return torch.nn.GRU(i, o, n, dropout=d, bidirectional=True)
+RNNS = {
+    "lstm": torch.nn.LSTM,
+    "gru": torch.nn.GRU
+}
+
+INPUT_SIZE = 1792 * 5 + 18
+
+
+def get_rnn(
+    rnn_type,
+    hidden_size,
+    num_layers,
+    dropout
+):
+    return RNNS[rnn_type](INPUT_SIZE, hidden_size, num_layers, dropout=dropout, bidirectional=True)
+
+
+def get_head(in_features, num_layers, dropout):
+    layers = []
+    for _ in range(num_layers - 1):
+        layers.append(torch.nn.BatchNorm1d(in_features))
+        layers.append(torch.nn.ReLU())
+        layers.append(torch.nn.Dropout(dropout))
+        layers.append(torch.nn.Linear(in_features, in_features))
+    layers.append(torch.nn.BatchNorm1d(in_features))
+    layers.append(torch.nn.ReLU())
+    layers.append(torch.nn.Dropout(dropout))
+    layers.append(torch.nn.Linear(in_features, 3))
+    return torch.nn.Sequential(*layers)
 
 
 class LightningModule(L.LightningModule):
-    def __init__(self, emb_dim, lstms, dropout):
+    def __init__(self, emb_dim, rnn_type, rnns, rnn_dropout, linears, linear_dropout):
         super().__init__()
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
 
-        self.seq = torch.nn.ModuleDict({c: get_lstm(1792 * 5 + 1, emb_dim, lstms, dropout) for c in constants.CONDITIONS})
-        self.heads = torch.nn.ModuleDict({cl: torch.nn.Linear(emb_dim * 2 * 3, 3) for cl in constants.CONDITION_LEVEL})
+        self.seq = torch.nn.ModuleDict(
+            {c: get_rnn(rnn_type, emb_dim, rnns, rnn_dropout) for c in constants.CONDITIONS}
+        )
+        self.heads = torch.nn.ModuleDict(
+            {cl: get_head(emb_dim * 2 * 3, linears, linear_dropout) for cl in constants.CONDITION_LEVEL}
+        )
 
     @staticmethod
     def rnn_pool(module, packed_seqs):

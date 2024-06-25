@@ -19,8 +19,11 @@ model:
   class_path: src.sequence.model.LightningModule
   init_args:
     emb_dim: 16
-    lstms: 2
-    dropout: 0.3
+    rnn_type: gru
+    rnns: 2
+    rnn_dropout: 0.3
+    linears: 2
+    linear_dropout: 0.5
 
 trainer:
   logger:

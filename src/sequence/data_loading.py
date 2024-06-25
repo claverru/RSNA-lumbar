@@ -15,14 +15,15 @@ class Dataset(torch.utils.data.Dataset):
         self,
         study_ids: List[int],
         train_df: pd.DataFrame,
-        feats_df: pd.DataFrame,
+        df: pd.DataFrame,
         aug: float = 0.2
     ):
         self.study_ids = study_ids
         self.train_df = train_df
-        self.feats_df = feats_df
-        self.feats_index = set(feats_df.index)
-        self.fcols = [c for c in self.feats_df.columns if c.startswith("f")]
+        self.df = df
+        self.feats_index = set(df.index)
+        self.n_feats = len(df.columns)
+        self.fids = [i for i, c in enumerate(df.columns) if c.startswith("f") and "_v" in c]
         self.aug = aug
 
     def __len__(self):
@@ -32,40 +33,19 @@ class Dataset(torch.utils.data.Dataset):
         d: dict = self.train_df.loc[study_id].set_index("condition_level")["severity"].to_dict()
         return {k: torch.tensor([constants.SEVERITY2LABEL.get(d.get(k), -1)]) for k in constants.CONDITION_LEVEL}
 
+    def do_aug(self, values: np.ndarray) -> np.ndarray:
+        mask = np.random.rand(values.shape[0], 5, 1) > self.aug
+        mask = mask.repeat(len(self.fids) // 5, -1).reshape(mask.shape[0], -1)
+        values[:, self.fids] *= mask
+        return values
+
     def get_feats(self, study_id, description): # (L, 1793, 5)
         index = (study_id, description)
         if index in self.feats_index:
-            chunk: pd.DataFrame = self.feats_df.loc[index]
-            unique_si = chunk[["series_id", "instance_number"]].drop_duplicates().to_numpy()
-            unique_siv = [tuple(u) + (i, ) for u in unique_si for i in range(5)]
-
-            i_cols = ["series_id", "instance_number", "version"]
-            chunk = chunk.set_index(i_cols).reindex(unique_siv, fill_value=0.0)
-
-
-            values = chunk.values.astype(np.float32)
-            #augmentation
-            values *= np.random.rand(values.shape[0], 1) > self.aug
-
-            values = values.reshape(-1, values.shape[-1] * 5)
-
-            pos_enc = pd.DataFrame.from_records(
-                chunk.index.droplevel(-1).unique()).groupby(0)[1].apply(lambda x: x/x.max()
-            ).values[:, None].astype(np.float32)
-
-            values = np.concatenate([pos_enc, values], 1)
-
-            return values
-
+            values = self.df.loc[index].values.astype(np.float32)
+            return self.do_aug(values)
         else:
-            return np.zeros((1, len(self.fcols) * 5 + 1), dtype=np.float32)
-
-    def do_aug(self, X):
-        for k, v in X.items():
-            keep_mask = torch.rand(v.shape[0], 5) > self.aug
-            keep_mask = keep_mask[..., None].repeat(1, 1, v.shape[-1] // 5).reshape(keep_mask.shape[0], -1)
-            X[k] = X[k] * keep_mask
-        return X
+            return np.zeros((1, self.n_feats), dtype=np.float32)
 
     def __getitem__(self, index):
         study_id = self.study_ids[index]
@@ -79,11 +59,40 @@ class Dataset(torch.utils.data.Dataset):
 
 def load_feats(path: Path = constants.FEATS_PATH) -> pd.DataFrame:
     print("Loading feats DataFrame")
-    df = pd.read_parquet(path)
-    index_cols = ["study_id", "series_description"]
-    sort_cols = ["series_id", "instance_number", "version"]
-    df = df.set_index(index_cols).sort_values(sort_cols).sort_index()
+    df = pd.read_parquet(path).reset_index()
     return df
+
+
+def merge_dfs(
+    feats_path: Path = constants.FEATS_PATH,
+    meta_path: Path = constants.META_PATH,
+    desc_path: Path = constants.DESC_PATH
+):
+    feats = load_feats(feats_path)
+    meta = load_meta(meta_path)
+    desc = pd.read_csv(desc_path)
+
+    df = pd.merge(desc, meta, on=["study_id", "series_id"])
+    df = df.sort_values(["study_id", "series_id", "ImagePositionPatient_2"])
+    df = pd.merge(df, feats, on=["series_id", "instance_number"])
+    df = df.drop(columns=["instance_number", "series_id"]).set_index(["study_id", "series_description"]).sort_index()
+    return df
+
+
+def load_meta(path: Path = constants.META_PATH, desc_path: Path = constants.DESC_PATH):
+    df = pd.read_csv(path)
+    for c in df.columns:
+        if c in ("study_id", "series_id"):
+            continue
+        mean = df.groupby("series_id")[c].transform("mean")
+        std = df.groupby("series_id")[c].transform("std")
+        # df[f"{c}_mean"] = mean
+        # df[f"{c}_std"] = std
+        new_c = c + "_norm" if c == "instance_number" else c
+        df[new_c] = (df[c] - mean) / (std + 1e-7)
+    return df
+
+
 
 
 def pad_sequences(sequences):
@@ -105,6 +114,8 @@ class DataModule(L.LightningDataModule):
     def __init__(
             self,
             feats_path: Path = constants.FEATS_PATH,
+            meta_path: Path = constants.META_PATH,
+            desc_path: Path = constants.DESC_PATH,
             train_path: Path = constants.TRAIN_PATH,
             n_splits: int = 5,
             this_split: int = 0,
@@ -116,7 +127,7 @@ class DataModule(L.LightningDataModule):
         self.this_split = this_split
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.feats_df = load_feats(feats_path)
+        self.df = merge_dfs(feats_path, meta_path, desc_path)
         self.train_df = utils.load_train(train_path).set_index("study_id").sort_index()
 
     def prepare_data(self):
@@ -134,8 +145,8 @@ class DataModule(L.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             train_study_ids, val_study_ids = self.split()
-            self.train_ds = Dataset(train_study_ids, self.train_df, self.feats_df, aug=0.2)
-            self.val_ds = Dataset(val_study_ids, self.train_df, self.feats_df, aug=0)
+            self.train_ds = Dataset(train_study_ids, self.train_df, self.df, aug=0.2)
+            self.val_ds = Dataset(val_study_ids, self.train_df, self.df, aug=0)
 
         if stage == "test":
             pass

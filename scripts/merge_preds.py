@@ -2,18 +2,21 @@ from pathlib import Path
 import pandas as pd
 import tyro
 
-from src import constants
+
+def load_df(path, i):
+    df = pd.read_parquet(path).drop(columns=["version", "study_id"]).set_index(["series_id", "instance_number"])
+    rename = {c: f"{c}_v{i}" for c in df.columns}
+    df.rename(columns=rename, inplace=True)
+    return df
 
 
-def merge_preds(ckpts_dir: Path, desc_path: Path = constants.DESC_PATH):
-    dfs = [pd.read_parquet(path) for path in ckpts_dir.rglob("*preds.parquet")]
-    desc = pd.read_csv(desc_path)
+def merge_preds(ckpts_dir: Path):
+    dfs = [load_df(path, i) for i, path in enumerate(sorted(ckpts_dir.rglob("*preds.parquet")))]
 
-    df = pd.concat(dfs, axis=0)
-    sort_cols = ["study_id", "series_id", "series_description", "instance_number", "version"]
-    df = pd.merge(desc, df, on=["study_id", "series_id"]).sort_values(sort_cols)
-    print(df)
-    df.to_parquet(ckpts_dir / "feats.parquet", index=False)
+    df = pd.concat(dfs, axis=1).fillna(0)
+
+    print(df.shape)
+    df.to_parquet(ckpts_dir / "feats.parquet")
 
 
 if __name__ == "__main__":
