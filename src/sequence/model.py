@@ -13,53 +13,54 @@ RNNS = {
 
 INPUT_SIZE = 1792 * 5 + 18
 
-
-def get_rnn(
-    rnn_type,
-    hidden_size,
-    num_layers,
-    dropout
-):
-    return RNNS[rnn_type](INPUT_SIZE, hidden_size, num_layers, dropout=dropout, bidirectional=True)
+def get_att(emb_dim, n_heads, n_layers, dropout):
+    layer = torch.nn.TransformerEncoderLayer(
+        emb_dim, n_heads, dropout=dropout, dim_feedforward=emb_dim * 2, batch_first=True
+    )
+    encoder = torch.nn.TransformerEncoder(layer, n_layers)
+    return encoder
 
 
-def get_head(in_features, num_layers, dropout):
-    layers = []
-    for _ in range(num_layers - 1):
-        layers.append(torch.nn.BatchNorm1d(in_features))
-        layers.append(torch.nn.ReLU())
-        layers.append(torch.nn.Dropout(dropout))
-        layers.append(torch.nn.Linear(in_features, in_features))
-    layers.append(torch.nn.BatchNorm1d(in_features))
-    layers.append(torch.nn.ReLU())
-    layers.append(torch.nn.Dropout(dropout))
-    layers.append(torch.nn.Linear(in_features, 3))
-    return torch.nn.Sequential(*layers)
+def get_proj(emb_dim):
+    return torch.nn.Linear(INPUT_SIZE, emb_dim)
+
+
+def get_head(in_features, dropout):
+    return torch.nn.Sequential(
+        torch.nn.Dropout(dropout),
+        torch.nn.Linear(in_features, 3)
+    )
 
 
 class LightningModule(L.LightningModule):
-    def __init__(self, emb_dim, rnn_type, rnns, rnn_dropout, linears, linear_dropout):
+    def __init__(self, emb_dim, n_heads, n_layers, att_dropout, linear_dropout):
         super().__init__()
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
 
+        self.proj = torch.nn.ModuleDict(
+            {c: get_proj(emb_dim) for c in constants.DESCRIPTIONS}
+        )
+
         self.seq = torch.nn.ModuleDict(
-            {c: get_rnn(rnn_type, emb_dim, rnns, rnn_dropout) for c in constants.CONDITIONS}
+            {c: get_att(emb_dim, n_heads, n_layers, att_dropout) for c in constants.DESCRIPTIONS}
         )
         self.heads = torch.nn.ModuleDict(
-            {cl: get_head(emb_dim * 2 * 3, linears, linear_dropout) for cl in constants.CONDITION_LEVEL}
+            {cl: get_head(emb_dim * 3, linear_dropout) for cl in constants.CONDITION_LEVEL}
         )
 
-    @staticmethod
-    def rnn_pool(module, packed_seqs):
-        out = module(packed_seqs)[0]
-        out, _ = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True, padding_value=-100)
-        out = out.max(1)[0]
-        return out
 
-    def forward(self, x: Dict[str, torch.nn.utils.rnn.PackedSequence]) -> Dict[str, torch.Tensor]:
-        seq = {k: self.rnn_pool(m, i) for (k, m), (_, i) in zip(self.seq.items(), x.items())}
-        cat = torch.concat(list(seq.values()), dim=1)
+    def forward_one(self, x: torch.Tensor, description: str) -> torch.Tensor:
+        mask = x.mean(-1) == -100
+        x = self.proj[description](x)
+        x = self.seq[description](x, src_key_padding_mask=mask)
+        x[mask] = -100
+        x = x.max(1)[0]
+        return x
+
+    def forward(self, x: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        seqs = [self.forward_one(i, k) for k, i in x.items()]
+        cat = torch.concat(seqs, dim=1)
         outs = {k: head(cat) for k, head in self.heads.items()}
         return outs
 

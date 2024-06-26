@@ -18,12 +18,11 @@ lr_scheduler:
 model:
   class_path: src.sequence.model.LightningModule
   init_args:
-    emb_dim: 16
-    rnn_type: gru
-    rnns: 2
-    rnn_dropout: 0.3
-    linears: 2
-    linear_dropout: 0.5
+    emb_dim: 32
+    n_heads: 4
+    n_layers: 2
+    att_dropout: 0.3
+    linear_dropout: 0.3
 
 trainer:
   logger:
@@ -46,7 +45,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
-  log_every_n_steps: 50
+  log_every_n_steps: 10
 
   accelerator: gpu
   precision: 16-mixed

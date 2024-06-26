@@ -31,7 +31,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def get_labels(self, study_id):
         d: dict = self.train_df.loc[study_id].set_index("condition_level")["severity"].to_dict()
-        return {k: torch.tensor([constants.SEVERITY2LABEL.get(d.get(k), -1)]) for k in constants.CONDITION_LEVEL}
+        return {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
 
     def do_aug(self, values: np.ndarray) -> np.ndarray:
         mask = np.random.rand(values.shape[0], 5, 1) > self.aug
@@ -43,9 +43,10 @@ class Dataset(torch.utils.data.Dataset):
         index = (study_id, description)
         if index in self.feats_index:
             values = self.df.loc[index].values.astype(np.float32)
-            return self.do_aug(values)
+            values = self.do_aug(values)
         else:
-            return np.zeros((1, self.n_feats), dtype=np.float32)
+            values = np.zeros((1, self.n_feats), dtype=np.float32)
+        return values
 
     def __getitem__(self, index):
         study_id = self.study_ids[index]
@@ -53,7 +54,6 @@ class Dataset(torch.utils.data.Dataset):
         X = {}
         for description in constants.DESCRIPTIONS:
             X[description] = torch.tensor(self.get_feats(study_id, description))
-
         return X, target
 
 
@@ -73,13 +73,17 @@ def merge_dfs(
     desc = pd.read_csv(desc_path)
 
     df = pd.merge(desc, meta, on=["study_id", "series_id"])
-    df = df.sort_values(["study_id", "series_id", "ImagePositionPatient_2"])
+    df = df.sort_values(["study_id", "series_id", "instance_number"])
     df = pd.merge(df, feats, on=["series_id", "instance_number"])
     df = df.drop(columns=["instance_number", "series_id"]).set_index(["study_id", "series_description"]).sort_index()
     return df
 
 
-def load_meta(path: Path = constants.META_PATH, desc_path: Path = constants.DESC_PATH):
+def scale_in(s):
+    return (s - 1)/(s.max() - 1)
+
+
+def load_meta(path: Path = constants.META_PATH):
     df = pd.read_csv(path)
     for c in df.columns:
         if c in ("study_id", "series_id"):
@@ -88,25 +92,28 @@ def load_meta(path: Path = constants.META_PATH, desc_path: Path = constants.DESC
         std = df.groupby("series_id")[c].transform("std")
         # df[f"{c}_mean"] = mean
         # df[f"{c}_std"] = std
-        new_c = c + "_norm" if c == "instance_number" else c
-        df[new_c] = (df[c] - mean) / (std + 1e-7)
+        if c == "instance_number":
+            new_c = c + "_norm" if c == "instance_number" else c
+            norm = scale_in(df[c])
+        else:
+            new_c = c
+            norm = (df[c] - mean) / (std + 1e-7)
+        df[new_c] = norm
     return df
 
 
-
-
 def pad_sequences(sequences):
-    return torch.nn.utils.rnn.pad_sequence(sequences, batch_first=True)
+    return torch.nn.utils.rnn.pad_sequence(sequences, batch_first=True, padding_value=-100)
 
 
-def pack_sequences(sequences):
-    return torch.nn.utils.rnn.pack_sequence(sequences, enforce_sorted=False)
+def stack(x):
+    return torch.stack(x, dim=0)
 
 
 def collate_fn(data: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]]):
     Xs, targets = zip(*data)
-    Xs = utils.cat_preds(Xs, pack_sequences)
-    targets = utils.cat_preds(targets)
+    Xs = utils.cat_preds(Xs, pad_sequences)
+    targets = utils.cat_preds(targets, stack)
     return Xs, targets
 
 
@@ -180,5 +187,5 @@ if __name__ == "__main__":
     dm.setup("fit")
     for x, y in dm.train_dataloader():
         print("---------------------------------------")
-        print({k: (v.data.shape, type(v)) for k, v in x.items()})
+        print({k: (v.shape, v.dtype) for k, v in x.items()})
         print({k: (v.shape, v.dtype) for k, v in y.items()})
