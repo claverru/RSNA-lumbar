@@ -69,7 +69,7 @@ def merge_dfs(
     desc_path: Path = constants.DESC_PATH
 ):
     feats = load_feats(feats_path)
-    meta = load_meta(meta_path)
+    meta = utils.load_meta(meta_path)
     desc = pd.read_csv(desc_path)
 
     df = pd.merge(desc, meta, on=["study_id", "series_id"])
@@ -79,41 +79,10 @@ def merge_dfs(
     return df
 
 
-def scale_in(s):
-    return (s - 1)/(s.max() - 1)
-
-
-def load_meta(path: Path = constants.META_PATH):
-    df = pd.read_csv(path)
-    for c in df.columns:
-        if c in ("study_id", "series_id"):
-            continue
-        mean = df.groupby("series_id")[c].transform("mean")
-        std = df.groupby("series_id")[c].transform("std")
-        # df[f"{c}_mean"] = mean
-        # df[f"{c}_std"] = std
-        if c == "instance_number":
-            new_c = c + "_norm" if c == "instance_number" else c
-            norm = scale_in(df[c])
-        else:
-            new_c = c
-            norm = (df[c] - mean) / (std + 1e-7)
-        df[new_c] = norm
-    return df
-
-
-def pad_sequences(sequences):
-    return torch.nn.utils.rnn.pad_sequence(sequences, batch_first=True, padding_value=-100)
-
-
-def stack(x):
-    return torch.stack(x, dim=0)
-
-
 def collate_fn(data: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]]):
     Xs, targets = zip(*data)
-    Xs = utils.cat_preds(Xs, pad_sequences)
-    targets = utils.cat_preds(targets, stack)
+    Xs = utils.cat_dict_tensor(Xs, utils.pad_sequences)
+    targets = utils.cat_dict_tensor(targets, utils.stack)
     return Xs, targets
 
 

@@ -10,10 +10,10 @@ import cv2
 from src import constants
 
 
-def cat_preds(preds: List[Dict[str, torch.Tensor]], f=lambda x: torch.concat(x, dim=0)) -> Dict[str, torch.Tensor]:
+def cat_dict_tensor(dicts: List[Dict[str, torch.Tensor]], f=lambda x: torch.concat(x, dim=0)) -> Dict[str, torch.Tensor]:
     result = {}
-    for k in preds[0]:
-        result[k] = f([pred[k] for pred in preds])
+    for k in dicts[0]:
+        result[k] = f([d[k] for d in dicts])
     return result
 
 
@@ -53,6 +53,41 @@ def get_images_df(img_dir: Path = constants.TRAIN_IMG_DIR) -> pd.DataFrame:
     return pd.DataFrame.from_dict(records).sort_values(sort_cols).reset_index(drop=True)
 
 
-def get_image_path(study_id, series_id, instance_number, img_dir = constants.TRAIN_IMG_DIR):
-    img_path = img_dir / str(study_id) / str(series_id) / f"{instance_number}.dcm"
+def get_image_path(study_id, series_id, instance_number, img_dir = constants.TRAIN_IMG_DIR, suffix: str = ".dcm"):
+    img_path = img_dir / str(study_id) / str(series_id) / f"{instance_number}{suffix}"
     return img_path
+
+
+def scale_in(s):
+    return (s - 1)/(s.max() - 1)
+
+
+def load_meta(path: Path = constants.META_PATH):
+    df = pd.read_csv(path)
+    for c in df.columns:
+        if c in ("study_id", "series_id"):
+            continue
+        mean = df.groupby("series_id")[c].transform("mean")
+        std = df.groupby("series_id")[c].transform("std")
+        # df[f"{c}_mean"] = mean
+        # df[f"{c}_std"] = std
+        if c == "instance_number":
+            new_c = c + "_norm" if c == "instance_number" else c
+            norm = scale_in(df[c])
+        else:
+            new_c = c
+            norm = (df[c] - mean) / (std + 1e-7)
+        df[new_c] = norm
+    return df
+
+
+def load_desc(path: Path = constants.DESC_PATH) -> pd.DataFrame:
+    return pd.read_csv(path)
+
+
+def pad_sequences(sequences, padding_value=-100):
+    return torch.nn.utils.rnn.pad_sequence(sequences, batch_first=True, padding_value=padding_value)
+
+
+def stack(x):
+    return torch.stack(x, dim=0)

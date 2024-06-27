@@ -1,0 +1,1 @@
+N_PER_PLANE = 10
