@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict
 
 import timm
 import torch
@@ -38,8 +38,8 @@ class LightningModule(L.LightningModule):
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
 
-        self.backbone = timm.create_model(arch, in_chans=1, pretrained=pretrained, features_only=True)#.eval()
-        self.F = sum(self.backbone.feature_info.channels())
+        self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained).eval()
+        self.F = self.backbone.num_features
 
         self.proj = torch.nn.ModuleDict(
             {c: get_proj(self.F, emb_dim) for c in constants.DESCRIPTIONS}
@@ -65,9 +65,7 @@ class LightningModule(L.LightningModule):
 
         filter_x = x[true_mask]
 
-        filter_feats: List[torch.Tensor] = self.backbone(filter_x)
-
-        filter_feats = torch.concat([f.mean((-1, -2))[0] for f in filter_feats], -1)
+        filter_feats: torch.Tensor = self.backbone(filter_x)
 
         feats = torch.zeros((B, L, self.F), device=filter_feats.device, dtype=filter_feats.dtype)
         feats[true_mask] = filter_feats
