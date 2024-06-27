@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import timm
 import torch
@@ -21,6 +21,7 @@ def get_proj(feats, emb_dim):
         torch.nn.Linear(feats, emb_dim),
         torch.nn.ReLU(),
         torch.nn.Linear(emb_dim, emb_dim),
+        torch.nn.Tanh(),
     )
 
 
@@ -37,11 +38,14 @@ class LightningModule(L.LightningModule):
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
 
-        self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained, global_pool="max")#.eval()
-        self.F = self.backbone.num_features
+        self.backbone = timm.create_model(arch, in_chans=1, pretrained=pretrained, features_only=True)#.eval()
+        self.F = sum(self.backbone.feature_info.channels())
 
         self.proj = torch.nn.ModuleDict(
-            {c: get_proj(self.F + M, emb_dim) for c in constants.DESCRIPTIONS}
+            {c: get_proj(self.F, emb_dim) for c in constants.DESCRIPTIONS}
+        )
+        self.meta_proj = torch.nn.ModuleDict(
+            {c: get_proj(M, emb_dim) for c in constants.DESCRIPTIONS}
         )
 
         self.seq = torch.nn.ModuleDict(
@@ -61,14 +65,17 @@ class LightningModule(L.LightningModule):
 
         filter_x = x[true_mask]
 
-        filter_feats: torch.Tensor = self.backbone(filter_x)
+        filter_feats: List[torch.Tensor] = self.backbone(filter_x)
+
+        filter_feats = torch.concat([f.mean((-1, -2))[0] for f in filter_feats], -1)
 
         feats = torch.zeros((B, L, self.F), device=filter_feats.device, dtype=filter_feats.dtype)
         feats[true_mask] = filter_feats
 
+        meta_feats = self.meta_proj[description](metadata)
 
-        feats = torch.concat([feats, metadata], -1)
         feats = self.proj[description](feats)
+        feats = feats + meta_feats
 
         o = self.seq[description](feats, src_key_padding_mask=padding_mask)
         o[padding_mask] = -100

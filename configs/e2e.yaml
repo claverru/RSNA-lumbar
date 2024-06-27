@@ -11,14 +11,14 @@ lr_scheduler:
   class_path: lightning.pytorch.cli.ReduceLROnPlateau
   init_args:
     factor: 0.1
-    patience: 0
+    patience: 3
     monitor: ${monitor}
     mode: ${monitor_mode}
 
 model:
   class_path: src.e2e.model.LightningModule
   init_args:
-    arch: resnet34
+    arch: tf_efficientnet_b2.ns_jft_in1k
     emb_dim: 32
     n_heads: 4
     n_layers: 2
@@ -28,9 +28,9 @@ model:
 data:
   class_path: src.e2e.data_loading.DataModule
   init_args:
-    img_dir: data/train_images_224
+    img_dir: data/train_images_260
     batch_size: 8
-    img_size: 224
+    img_size: 260
 
 trainer:
   logger:
@@ -43,7 +43,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 2
+        patience: 3
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -55,10 +55,11 @@ trainer:
         logging_interval: epoch
     - class_path: lightning.pytorch.callbacks.BackboneFinetuning
       init_args:
-        unfreeze_backbone_at_epoch: 2
-        backbone_initial_ratio_lr: 0.0625
+        unfreeze_backbone_at_epoch: 0
+        backbone_initial_ratio_lr: 0.03125
         should_align: True
         verbose: True
+        train_bn: False
   log_every_n_steps: 10
 
   accelerator: gpu
