@@ -2,6 +2,7 @@ from pathlib import Path
 import random
 from typing import Dict, Optional, Tuple
 
+import cv2
 from sklearn.model_selection import StratifiedGroupKFold
 import albumentations as A
 import lightning as L
@@ -45,8 +46,8 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         idx = self.index2id[index]
         chunk: pd.DataFrame = self.df.loc[idx]
-        img_path = (self.img_dir / str(idx[0]) / str(idx[1]) / str(idx[2])).with_suffix(".dcm")
-        img = utils.load_dcm_img(img_path)
+        img_path = (self.img_dir / str(idx[0]) / str(idx[1]) / str(idx[2])).with_suffix(".png")
+        img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)[..., None].repeat(3, -1)
 
         if self.transforms is not None:
             img = self.transforms(image=img)["image"]
