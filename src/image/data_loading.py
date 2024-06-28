@@ -11,7 +11,6 @@ import pandas as pd
 import torch
 from albumentations.pytorch import ToTensorV2
 import torchvision
-import torchvision.transforms.functional
 
 from src import constants, utils
 
@@ -46,8 +45,8 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         idx = self.index2id[index]
         chunk: pd.DataFrame = self.df.loc[idx]
-        img_path = (self.img_dir / str(idx[0]) / str(idx[1]) / str(idx[2])).with_suffix(".png")
-        img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)[..., None].repeat(3, -1)
+        img_path = utils.get_image_path(idx[0], idx[1], idx[2], self.img_dir, suffix=".png")
+        img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)[..., None]
 
         if self.transforms is not None:
             img = self.transforms(image=img)["image"]
@@ -77,8 +76,8 @@ class PredictDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         study_id, series_id, instance_number = self.df.iloc[index].to_list()
-        img_path = (self.img_dir / str(study_id) / str(series_id) / str(instance_number)).with_suffix(".dcm")
-        img = utils.load_dcm_img(img_path)
+        img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
+        img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)[..., None]
         img = self.transforms(image=img)["image"]
         return img
 

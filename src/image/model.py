@@ -11,7 +11,7 @@ class LightningModule(L.LightningModule):
     def __init__(self, arch: str = "resnet34"):
         super().__init__()
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
-        self.backbone = timm.create_model(arch, pretrained=True, num_classes=0).eval()
+        self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=1).eval()
         n_feats = self.backbone.num_features
         self.heads = torch.nn.ModuleDict({out: torch.nn.Linear(n_feats, 3) for out in constants.CONDITION_LEVEL})
 

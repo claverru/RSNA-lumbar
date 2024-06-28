@@ -48,7 +48,7 @@ def get_images_df(img_dir: Path = constants.TRAIN_IMG_DIR) -> pd.DataFrame:
             "series_id": int(img_path.parent.stem),
             "instance_number": int(img_path.stem),
         }
-    records = [get_record(path) for path in img_dir.rglob("*.dcm")]
+    records = [get_record(path) for path in img_dir.rglob("*.[dcm png]*")]
     sort_cols = ["study_id", "series_id", "instance_number"]
     return pd.DataFrame.from_dict(records).sort_values(sort_cols).reset_index(drop=True)
 
