@@ -4,7 +4,7 @@ import tyro
 
 
 def load_df(path, i):
-    df = pd.read_parquet(path).drop(columns=["version", "study_id"]).set_index(["series_id", "instance_number"])
+    df = pd.read_parquet(path).drop(columns=["study_id"]).set_index(["series_id", "instance_number"])
     rename = {c: f"{c}_v{i}" for c in df.columns}
     df.rename(columns=rename, inplace=True)
     return df

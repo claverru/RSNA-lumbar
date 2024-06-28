@@ -8,7 +8,7 @@ def main(ckpts_dir: Path):
         config_path = next(ckpt_dir.rglob("*config.yaml"))
         ckpt_path = next(ckpt_dir.rglob("*.ckpt"))
         subprocess.run([
-            "python", "scripts/train.py", "predict",
+            "python", "scripts/trainer.py", "predict",
             "-c", config_path,
             "--ckpt_path", ckpt_path,
             "--return_predictions", "false"
