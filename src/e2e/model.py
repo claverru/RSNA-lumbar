@@ -15,14 +15,18 @@ RNNS = {
 }
 
 
-def get_rnn(
-    rnn_type,
-    in_dim,
-    hidden_size,
-    num_layers,
-    dropout
-):
-    return RNNS[rnn_type](in_dim, hidden_size, num_layers, dropout=dropout, bidirectional=True)
+def get_att(emb_dim, n_heads, n_layers, dropout):
+    layer = torch.nn.TransformerEncoderLayer(
+        emb_dim, n_heads, dropout=dropout, dim_feedforward=emb_dim * 2, batch_first=True
+    )
+    encoder = torch.nn.TransformerEncoder(layer, n_layers)
+    return encoder
+
+
+def get_proj(feats, emb_dim):
+    return torch.nn.Sequential(
+        torch.nn.Linear(feats, emb_dim)
+    )
 
 
 def get_head(in_features, dropout):
@@ -41,11 +45,14 @@ class LightningModule(L.LightningModule):
         self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained).eval()
         self.F = self.backbone.num_features
 
+        self.proj = torch.nn.ModuleDict(
+            {c: get_proj(self.F + M, emb_dim) for c in constants.DESCRIPTIONS}
+        )
         self.seq = torch.nn.ModuleDict(
-            {c: get_rnn("gru", self.F, emb_dim, n_layers, att_dropout) for c in constants.DESCRIPTIONS}
+            {c: get_att(emb_dim, n_heads, n_layers, att_dropout) for c in constants.DESCRIPTIONS}
         )
         self.heads = torch.nn.ModuleDict(
-            {cl: get_head(emb_dim * 2 * 3, linear_dropout) for cl in constants.CONDITION_LEVEL}
+            {cl: get_head(emb_dim * 3, linear_dropout) for cl in constants.CONDITION_LEVEL}
         )
 
 
@@ -63,14 +70,14 @@ class LightningModule(L.LightningModule):
         feats = torch.zeros((B, L, self.F), device=filter_feats.device, dtype=filter_feats.dtype)
         feats[true_mask] = filter_feats
 
-        packed_feats = torch.nn.utils.rnn.pack_padded_sequence(
-            input=feats, lengths=true_mask.sum(-1).tolist(), batch_first=True, enforce_sorted=False
-        )
+        feats = torch.concat([feats, metadata], -1)
 
-        out,_  = self.seq[description](packed_feats)
-        out, _ = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True, padding_value=-100)
-        out = out.amax(1)
-        return out
+        feats = self.proj[description](feats)
+
+        o = self.seq[description](feats, src_key_padding_mask=padding_mask)[:, 0]
+
+        return o
+
 
     def forward(self, x, metadata) -> Dict[str, torch.Tensor]:
         seqs = []

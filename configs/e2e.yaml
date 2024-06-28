@@ -22,8 +22,8 @@ model:
     emb_dim: 128
     n_heads: 4
     n_layers: 2
-    att_dropout: 0.3
-    linear_dropout: 0.3
+    att_dropout: 0.1
+    linear_dropout: 0.1
 
 data:
   class_path: src.e2e.data_loading.DataModule
@@ -53,14 +53,14 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
-    - class_path: src.finetuning.CustomBackboneFinetuning
-      init_args:
-        unfreeze_backbone_at_epoch: 1
-        backbone_initial_ratio_lr: 1
-        multiplicative: 1
-        verbose: True
-        should_align: True
-        train_bn: True
+    # - class_path: src.finetuning.CustomBackboneFinetuning
+    #   init_args:
+    #     unfreeze_backbone_at_epoch: 1
+    #     backbone_initial_ratio_lr: 1
+    #     multiplicative: 1
+    #     verbose: True
+    #     should_align: True
+    #     train_bn: True
   log_every_n_steps: 10
   accelerator: gpu
   precision: 16-mixed
