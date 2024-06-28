@@ -11,7 +11,7 @@ lr_scheduler:
   class_path: lightning.pytorch.cli.ReduceLROnPlateau
   init_args:
     factor: 0.1
-    patience: 3
+    patience: 1
     monitor: ${monitor}
     mode: ${monitor_mode}
 
@@ -19,7 +19,7 @@ model:
   class_path: src.e2e.model.LightningModule
   init_args:
     arch: tf_efficientnet_b2.ns_jft_in1k
-    emb_dim: 32
+    emb_dim: 128
     n_heads: 4
     n_layers: 2
     att_dropout: 0.3
@@ -53,14 +53,18 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
+    - class_path: src.finetuning.CustomBackboneFinetuning
+      init_args:
+        unfreeze_backbone_at_epoch: 1
+        backbone_initial_ratio_lr: 1
+        multiplicative: 1
+        verbose: True
+        should_align: True
+        train_bn: True
   log_every_n_steps: 10
-
   accelerator: gpu
   precision: 16-mixed
-  # benchmark: True
   accumulate_grad_batches: 2
   max_epochs: 10000
-
-
 
 ckpt_path: null

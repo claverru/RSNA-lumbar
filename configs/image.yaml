@@ -22,6 +22,10 @@ data:
 
 trainer:
   logger:
+    class_path: CSVLogger
+    init_args:
+      save_dir: lightning_logs/
+      name: ""
   enable_checkpointing: true
   callbacks:
     - class_path: lightning.pytorch.callbacks.EarlyStopping

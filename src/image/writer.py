@@ -21,7 +21,7 @@ class Writer(BasePredictionWriter):
 
         df = trainer.predict_dataloaders.dataset.df
 
-        df["version"] = int(out_dir.stem.split("_")[1])
+        # df["version"] = int(out_dir.stem.split("_")[1])
 
         out_df = pd.concat([df, preds_df], axis=1)
 
