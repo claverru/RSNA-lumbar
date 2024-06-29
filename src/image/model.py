@@ -7,8 +7,15 @@ import timm
 from src import constants
 
 
+def get_head(in_dim, dropout):
+    return torch.nn.Sequence(
+        torch.nn.Dropout(dropout),
+        torch.nn.Linear(in_dim, 3)
+    )
+
+
 class LightningModule(L.LightningModule):
-    def __init__(self, arch: str = "resnet34"):
+    def __init__(self, arch: str = "resnet34", dropout: float = 0.2):
         super().__init__()
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=1).eval()

@@ -53,8 +53,8 @@ class Dataset(torch.utils.data.Dataset):
 
         d = chunk.set_index("condition_level")["severity"].to_dict()
 
-        if self.train and random.random() < 0.5:
-            img, d = self.hflip(img, d)
+        # if self.train and random.random() < 0.5:
+        #     img, d = self.hflip(img, d)
 
         y_true = {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
         return img, y_true
