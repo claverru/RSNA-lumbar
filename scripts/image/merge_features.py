@@ -12,7 +12,7 @@ def load_df(path, i):
 
 def merge_preds(ckpts_dir: Path):
     dfs = []
-    for i, path in enumerate(sorted(ckpts_dir.rglob("*preds.parquet"))):
+    for i, path in enumerate(sorted(ckpts_dir.rglob("*preds.parquet"), key=lambda x: int(x.parent.stem.split("_")[1]))):
         print(path)
         dfs.append(load_df(path, i))
 

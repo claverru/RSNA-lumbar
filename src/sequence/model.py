@@ -1,10 +1,8 @@
 from typing import Dict
 
 import torch
-import lightning as L
 
-from src import constants
-from src.model import LightningModule
+from src import constants, model
 
 
 RNNS = {
@@ -36,7 +34,7 @@ def get_head(in_features, dropout):
     )
 
 
-class LightningModule(LightningModule):
+class LightningModule(model.LightningModule):
     def __init__(self, emb_dim, n_heads, n_layers, att_dropout, linear_dropout, **kwargs):
         super().__init__(**kwargs)
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
