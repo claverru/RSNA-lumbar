@@ -14,8 +14,8 @@ model:
     emb_dim: 64
     n_heads: 1
     n_layers: 4
-    att_dropout: 0.1
-    linear_dropout: 0.1
+    att_dropout: 0.2
+    linear_dropout: 0.2
     optimizer:
       class_path: torch.optim.Adam
       init_args:
