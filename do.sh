@@ -5,3 +5,6 @@ python scripts/trainer.py fit -c configs/image.yaml --data.this_split 3 --data.n
 python scripts/trainer.py fit -c configs/image.yaml --data.this_split 4 --data.n_splits 7
 python scripts/trainer.py fit -c configs/image.yaml --data.this_split 5 --data.n_splits 7
 python scripts/trainer.py fit -c configs/image.yaml --data.this_split 6 --data.n_splits 7
+python scripts/image/predict_features.py --ckpts-dir lightning_logs
+python scripts/image/merge_features.py --ckpts-dir lightning_logs
+python scripts/trainer.py fit -c configs/sequence.yaml --data.feats_path lightning_logs/feats.parquet
