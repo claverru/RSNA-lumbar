@@ -11,8 +11,8 @@ data:
 model:
   class_path: src.sequence.model.LightningModule
   init_args:
-    emb_dim: 64
-    n_heads: 1
+    emb_dim: 128
+    n_heads: 8
     n_layers: 4
     att_dropout: 0.2
     linear_dropout: 0.2
@@ -24,13 +24,13 @@ model:
       class_path: torch.optim.lr_scheduler.OneCycleLR
       init_args:
         max_lr: 1e-3
-        epochs: 25
-        steps_per_epoch: 25
-        pct_start: 0.04
-        div_factor: 1000
-        final_div_factor: 500
+        epochs: 40
+        steps_per_epoch: 49
+        pct_start: 0.05
+        div_factor: 2000
+        anneal_strategy: linear
+        final_div_factor: 1500
     interval: step
-
 
 trainer:
   logger:
@@ -43,7 +43,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 4
+        patience: 6
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -58,7 +58,7 @@ trainer:
   accelerator: gpu
   precision: 16-mixed
   # benchmark: True
-  accumulate_grad_batches: 2
+  accumulate_grad_batches: 1
   max_epochs: 10000
 
 ckpt_path: null

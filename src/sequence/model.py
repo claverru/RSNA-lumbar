@@ -12,7 +12,7 @@ RNNS = {
     "gru": torch.nn.GRU
 }
 
-INPUT_SIZE = 1920 * 7 + 18
+INPUT_SIZE = 1920 * 7 + 18 + 8
 
 def get_att(emb_dim, n_heads, n_layers, dropout):
     layer = torch.nn.TransformerEncoderLayer(
@@ -23,7 +23,10 @@ def get_att(emb_dim, n_heads, n_layers, dropout):
 
 
 def get_proj(emb_dim):
-    return torch.nn.Linear(INPUT_SIZE, emb_dim)
+    return torch.nn.Sequential(
+        torch.nn.Linear(INPUT_SIZE, emb_dim * 2),
+        torch.nn.Linear(emb_dim * 2, emb_dim),
+    )
 
 
 def get_head(in_features, dropout):
@@ -39,30 +42,26 @@ class LightningModule(LightningModule):
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
 
-        self.proj = torch.nn.ModuleDict(
-            {c: get_proj(emb_dim) for c in constants.DESCRIPTIONS}
-        )
+        self.proj = get_proj(emb_dim)
+        self.seq = get_att(emb_dim, n_heads, n_layers, att_dropout)
+        self.emb = torch.nn.Embedding(4, 8, padding_idx=3)
 
-        self.seq = torch.nn.ModuleDict(
-            {c: get_att(emb_dim, n_heads, n_layers, att_dropout) for c in constants.DESCRIPTIONS}
-        )
         self.heads = torch.nn.ModuleDict(
-            {cl: get_head(emb_dim * 3, linear_dropout) for cl in constants.CONDITION_LEVEL}
+            {cl: get_head(emb_dim, linear_dropout) for cl in constants.CONDITION_LEVEL}
         )
 
 
-    def forward_one(self, x: torch.Tensor, description: str) -> torch.Tensor:
-        mask = x.mean(-1) == -100
-        x = self.proj[description](x)
-        x = self.seq[description](x, src_key_padding_mask=mask)
-        x[mask] = -100
-        x = x.max(1)[0]
-        return x
+    def forward(self, x: torch.Tensor, desc: torch.Tensor) -> Dict[str, torch.Tensor]:
+        padding_mask = desc == 3
+        desc_emb = self.emb(desc) # B, L, 8
+        x = torch.concat([x, desc_emb], -1)
+        x = self.proj(x)
+        x = self.seq(x, src_key_padding_mask=padding_mask)
 
-    def forward(self, x: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        seqs = [self.forward_one(i, k) for k, i in x.items()]
-        cat = torch.concat(seqs, dim=1)
-        outs = {k: head(cat) for k, head in self.heads.items()}
+        x[padding_mask] = -100
+        x = x.amax(1)
+
+        outs = {k: head(x) for k, head in self.heads.items()}
         return outs
 
     def compute_severe_spinal_loss(self, y_true_dict, y_pred_dict):
@@ -112,8 +111,8 @@ class LightningModule(LightningModule):
         return losses
 
     def training_step(self, batch, batch_idx):
-        x, y_true_dict = batch
-        y_pred_dict = self.forward(x)
+        x, desc, y_true_dict = batch
+        y_pred_dict = self.forward(x, desc)
         losses = self.do_loss(y_true_dict, y_pred_dict)
         batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
 
@@ -126,8 +125,8 @@ class LightningModule(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, y_true_dict = batch
-        y_pred_dict = self.forward(x)
+        x, desc, y_true_dict = batch
+        y_pred_dict = self.forward(x, desc)
         losses = self.do_loss(y_true_dict, y_pred_dict)
         batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
 

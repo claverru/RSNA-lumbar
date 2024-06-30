@@ -51,10 +51,15 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         study_id = self.study_ids[index]
         target = self.get_labels(study_id)
-        X = {}
-        for description in constants.DESCRIPTIONS:
-            X[description] = torch.tensor(self.get_feats(study_id, description))
-        return X, target
+        X = []
+        desc = []
+        for i, description in enumerate(constants.DESCRIPTIONS):
+            x = torch.tensor(self.get_feats(study_id, description))
+            X.append(x)
+            desc += [i] * len(x)
+        desc = torch.tensor(desc)
+        X = torch.concat(X, 0)
+        return X, desc, target
 
 
 def load_feats(path: Path = constants.FEATS_PATH) -> pd.DataFrame:
@@ -80,10 +85,11 @@ def merge_dfs(
 
 
 def collate_fn(data: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]]):
-    Xs, targets = zip(*data)
-    Xs = utils.cat_dict_tensor(Xs, utils.pad_sequences)
+    Xs, desc, targets = zip(*data)
+    Xs = utils.pad_sequences(Xs)
+    desc = utils.pad_sequences(desc, 3)
     targets = utils.cat_dict_tensor(targets, utils.stack)
-    return Xs, targets
+    return Xs, desc, targets
 
 
 class DataModule(L.LightningDataModule):
@@ -152,9 +158,10 @@ class DataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    dm = DataModule(num_workers=1)
+    dm = DataModule(num_workers=1, batch_size=8, feats_path=Path("data/preds_densenet200/feats.parquet"))
     dm.setup("fit")
-    for x, y in dm.train_dataloader():
+    for x, desc, y in dm.train_dataloader():
         print("---------------------------------------")
-        print({k: (v.shape, v.dtype) for k, v in x.items()})
+        print(x.shape, x.dtype)
+        print(desc.shape, desc.dtype)
         print({k: (v.shape, v.dtype) for k, v in y.items()})

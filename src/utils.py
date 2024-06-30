@@ -62,8 +62,12 @@ def scale_in(s):
     return (s - 1)/(s.max() - 1)
 
 
-def load_meta(path: Path = constants.META_PATH):
+def load_meta(path: Path = constants.META_PATH, normalize: bool = True):
     df = pd.read_csv(path)
+
+    if not normalize:
+        return df
+
     for c in df.columns:
         if c in ("study_id", "series_id"):
             continue
