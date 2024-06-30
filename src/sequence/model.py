@@ -4,6 +4,7 @@ import torch
 import lightning as L
 
 from src import constants
+from src.model import LightningModule
 
 
 RNNS = {
@@ -11,13 +12,13 @@ RNNS = {
     "gru": torch.nn.GRU
 }
 
-INPUT_SIZE = 1792 * 5 + 18
+INPUT_SIZE = 1920 * 7 + 18
 
 def get_att(emb_dim, n_heads, n_layers, dropout):
     layer = torch.nn.TransformerEncoderLayer(
-        emb_dim, n_heads, dropout=dropout, dim_feedforward=emb_dim * 2, batch_first=True
+        emb_dim, n_heads, dropout=dropout, dim_feedforward=emb_dim * 2, batch_first=True, norm_first=True
     )
-    encoder = torch.nn.TransformerEncoder(layer, n_layers)
+    encoder = torch.nn.TransformerEncoder(layer, n_layers, norm=torch.nn.LayerNorm(emb_dim), enable_nested_tensor=False)
     return encoder
 
 
@@ -32,9 +33,9 @@ def get_head(in_features, dropout):
     )
 
 
-class LightningModule(L.LightningModule):
-    def __init__(self, emb_dim, n_heads, n_layers, att_dropout, linear_dropout):
-        super().__init__()
+class LightningModule(LightningModule):
+    def __init__(self, emb_dim, n_heads, n_layers, att_dropout, linear_dropout, **kwargs):
+        super().__init__(**kwargs)
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
 

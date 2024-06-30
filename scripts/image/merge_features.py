@@ -11,7 +11,10 @@ def load_df(path, i):
 
 
 def merge_preds(ckpts_dir: Path):
-    dfs = [load_df(path, i) for i, path in enumerate(sorted(ckpts_dir.rglob("*preds.parquet")))]
+    dfs = []
+    for i, path in enumerate(sorted(ckpts_dir.rglob("*preds.parquet"))):
+        print(path)
+        dfs.append(load_df(path, i))
 
     df = pd.concat(dfs, axis=1).fillna(0)
 

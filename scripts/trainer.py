@@ -30,4 +30,5 @@ if __name__ == '__main__':
         subclass_mode_model=True,
         subclass_mode_data=True,
         parser_kwargs={'parser_mode': 'omegaconf'},
+        auto_configure_optimizers=False
     )

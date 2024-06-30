@@ -17,7 +17,7 @@ class Writer(BasePredictionWriter):
         cols = [f"f{i}" for i in range(preds.shape[1])]
 
         # NOTE: reduces significantly memory size, maybe try without it in the future
-        preds_df = pd.DataFrame(preds, columns=cols).round(2)
+        preds_df = pd.DataFrame(preds, columns=cols)#.round(2)
 
         df = trainer.predict_dataloaders.dataset.df
 

@@ -58,7 +58,7 @@ class Dataset(torch.utils.data.Dataset):
 
 
 def load_feats(path: Path = constants.FEATS_PATH) -> pd.DataFrame:
-    print("Loading feats DataFrame")
+    print(f"Loading feats DataFrame: {path}")
     df = pd.read_parquet(path).reset_index()
     return df
 
