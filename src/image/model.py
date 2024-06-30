@@ -1,26 +1,23 @@
-from typing import Dict
-
 import torch
-import lightning as L
 import timm
 
-from src import constants
+from src import constants, model
 
 
 def get_head(in_dim, dropout):
-    return torch.nn.Sequence(
+    return torch.nn.Sequential(
         torch.nn.Dropout(dropout),
         torch.nn.Linear(in_dim, 3)
     )
 
 
-class LightningModule(L.LightningModule):
-    def __init__(self, arch: str = "resnet34", dropout: float = 0.2):
-        super().__init__()
+class LightningModule(model.LightningModule):
+    def __init__(self, arch: str = "resnet34", dropout: float = 0.2, **kwargs):
+        super().__init__(**kwargs)
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=1).eval()
         n_feats = self.backbone.num_features
-        self.heads = torch.nn.ModuleDict({out: torch.nn.Linear(n_feats, 3) for out in constants.CONDITION_LEVEL})
+        self.heads = torch.nn.ModuleDict({out: get_head(n_feats, dropout) for out in constants.CONDITION_LEVEL})
 
     def forward(self, x):
         feats = self.backbone(x)
