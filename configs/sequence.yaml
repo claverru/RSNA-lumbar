@@ -23,12 +23,12 @@ model:
     lr_scheduler:
       class_path: torch.optim.lr_scheduler.OneCycleLR
       init_args:
-        max_lr: 1e-2
+        max_lr: 1e-3
         epochs: 25
         steps_per_epoch: 25
-        pct_start: 0.08
-        div_factor: 500
-        final_div_factor: 1000
+        pct_start: 0.04
+        div_factor: 1000
+        final_div_factor: 500
     interval: step
 
 
