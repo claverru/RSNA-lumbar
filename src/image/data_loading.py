@@ -181,7 +181,10 @@ class DataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    dm = DataModule()
+    import yaml
+
+    config = yaml.load(open("configs/image.yaml"), Loader=yaml.FullLoader)
+    dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
     for x, y in dm.val_dataloader():
         print(x.shape)
