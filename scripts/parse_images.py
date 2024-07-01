@@ -1,6 +1,7 @@
 from multiprocessing import Pool
 from pathlib import Path
 from functools import partial
+from typing import Optional
 
 import tqdm
 import tyro
@@ -21,7 +22,7 @@ def f(ids, in_dir, out_dir, img_size):
     cv2.imwrite(str(out_path), img)
 
 
-def main(out_dir: Path, img_size: int, in_dir: Path = constants.TRAIN_IMG_DIR):
+def main(out_dir: Path, img_size: Optional[int] = None, in_dir: Path = constants.TRAIN_IMG_DIR):
     df = utils.get_images_df()
 
     partial_f = partial(f, in_dir=in_dir, out_dir=out_dir, img_size=img_size)
