@@ -19,24 +19,24 @@ class Ensemble(L.LightningModule):
         return torch.concat([module(x) for module in self.module_list], -1)
 
 
-def get_loss(checkpoint_path: Path) -> float:
-    return float(checkpoint_path.stem.split("=")[-1])
+def get_loss(ckpt_path: Path) -> float:
+    return float(ckpt_path.stem.split("=")[-1])
 
 
-def load_from_checkpoints_dir(checkpoints_dir: Path) -> Tuple[List[model.LightningModule], int]:
+def load_from_ckpts_dir(ckpts_dir: Path) -> Tuple[List[model.LightningModule], int]:
     modules = []
-    for checkpoint_path in sorted(checkpoints_dir.rglob("*.ckpt")):
-        print("<----", checkpoint_path)
-        config_path = checkpoint_path.parent.parent / "config.yaml"
+    for ckpt_path in sorted(ckpts_dir.rglob("*.ckpt")):
+        print("<----", ckpt_path)
+        config_path = ckpt_path.parent.parent / "config.yaml"
         config = yaml.load(open(config_path), Loader=yaml.FullLoader)
         model_kwargs = config["model"]["init_args"]
-        module = model.LightningModule.load_from_checkpoint(checkpoint_path, **model_kwargs).cpu()
+        module = model.LightningModule.load_from_checkpoint(ckpt_path, **model_kwargs).cpu()
         modules.append(module)
     return modules, config
 
 
-def save(checkpoints_dir: Path, out_dir: Path):
-    modules, config = load_from_checkpoints_dir(checkpoints_dir)
+def save(ckpts_dir: Path, out_dir: Path):
+    modules, config = load_from_ckpts_dir(ckpts_dir)
     ens = Ensemble(modules)
 
     model_path = out_dir / "model.pt"
