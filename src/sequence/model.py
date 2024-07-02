@@ -2,7 +2,7 @@ from typing import Dict
 
 import torch
 
-from src import constants, model
+from src import constants, model, metric
 
 
 RNNS = {
@@ -37,8 +37,8 @@ def get_head(in_features, dropout):
 class LightningModule(model.LightningModule):
     def __init__(self, emb_dim, n_heads, n_layers, att_dropout, linear_dropout, **kwargs):
         super().__init__(**kwargs)
-        self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
-        self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
+        self.train_loss = metric.LumbarLoss()
+        self.val_loss = metric.LumbarLoss()
 
         self.proj = get_proj(emb_dim)
         self.seq = get_att(emb_dim, n_heads, n_layers, att_dropout)
@@ -62,57 +62,11 @@ class LightningModule(model.LightningModule):
         outs = {k: head(x) for k, head in self.heads.items()}
         return outs
 
-    def compute_severe_spinal_loss(self, y_true_dict, y_pred_dict):
-        severe_spinal_true = torch.stack(
-            [y_true_dict[k] for k in constants.CONDITION_LEVEL if "spinal" in k], -1
-        ).max(-1)[0]
-        is_empty_spinal_batch = (severe_spinal_true == -1).all()
-
-        if is_empty_spinal_batch:
-            return -1
-
-        severe_spinal_preds = torch.stack(
-            [torch.softmax(y_pred_dict[k], -1)[:, -1] for k in constants.CONDITION_LEVEL if "spinal" in k],
-            -1
-        ).max(-1)[0]
-
-        severe_spinal_preds = torch.stack([1 - severe_spinal_preds, severe_spinal_preds], -1)
-        weight = torch.pow(2.0, severe_spinal_true)
-        severe_spinal_binary_true = torch.where(
-            severe_spinal_true > 0, severe_spinal_true - 1, severe_spinal_true
-        )
-
-        severe_spinal_losses = self.spinal_loss_f(
-            torch.log(severe_spinal_preds), severe_spinal_binary_true
-        ) * weight
-        return severe_spinal_losses[severe_spinal_true != -1].mean()
-
-
-    def compute_condition_loss(self, y_true_dict, y_pred_dict, condition):
-        true_batch = [y_true for k, y_true in y_true_dict.items() if condition in k]
-        true_batch = torch.concat(true_batch, 0)
-
-        is_empty_batch = (true_batch == -1).all()
-        if is_empty_batch:
-            return -1
-
-        pred_batch = [y_true for k, y_true in y_pred_dict.items() if condition in k]
-        pred_batch = torch.concat(pred_batch, 0)
-
-        return self.loss_f(pred_batch, true_batch)
-
-    def do_loss(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]):
-        losses = {}
-        for condition in constants.CONDITIONS:
-            losses[condition] = self.compute_condition_loss(y_true_dict, y_pred_dict, condition)
-        losses["severe_spinal"] = self.compute_severe_spinal_loss(y_true_dict, y_pred_dict)
-        return losses
-
     def training_step(self, batch, batch_idx):
         x, desc, y_true_dict = batch
         y_pred_dict = self.forward(x, desc)
-        losses = self.do_loss(y_true_dict, y_pred_dict)
         batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
+        losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y_true_dict, y_pred_dict)
 
         for k, v in losses.items():
             self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
@@ -125,13 +79,13 @@ class LightningModule(model.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, desc, y_true_dict = batch
         y_pred_dict = self.forward(x, desc)
-        losses = self.do_loss(y_true_dict, y_pred_dict)
-        batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
+        self.val_loss.update(y_true_dict, y_pred_dict)
 
+    def on_validation_epoch_end(self, *args, **kwargs):
+        losses = self.val_loss.compute()
+        self.val_loss.reset()
         for k, v in losses.items():
-            self.log(f"val_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
+            self.log(f"val_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False)
 
         loss = sum(losses.values()) / len(losses)
-        self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
-
-        return loss
+        self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
