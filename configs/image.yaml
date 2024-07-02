@@ -27,7 +27,7 @@ data:
   init_args:
     img_size: 380
     batch_size: 32
-    img_dir: data/train_images_natural
+    img_dir: data/train_images_natural_v2
 
 trainer:
   logger:

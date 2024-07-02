@@ -85,8 +85,8 @@ class PredictDataset(torch.utils.data.Dataset):
 def get_transforms(img_size):
     return A.Compose(
         [
-            A.Resize(img_size, img_size),
-            A.Normalize(),
+            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
+            A.Normalize((0.485, ), (0.229, )),
             ToTensorV2(),
         ]
     )
