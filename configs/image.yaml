@@ -25,7 +25,7 @@ model:
 data:
   class_path: src.image.data_loading.DataModule
   init_args:
-    img_size: 380
+    img_size: 448
     batch_size: 32
     img_dir: data/train_images_natural_v2
 

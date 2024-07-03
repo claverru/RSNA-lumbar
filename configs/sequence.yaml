@@ -6,7 +6,9 @@ data:
   class_path: src.sequence.data_loading.DataModule
   init_args:
     batch_size: 32
-    feats_path: data/preds_densenet200/feats.parquet
+    aug: 0.1
+    feats_path: data/feats_densenet200_7.parquet
+    meta_path: data/metadata_v3_norm.csv
 
 model:
   class_path: src.sequence.model.LightningModule
@@ -57,7 +59,6 @@ trainer:
 
   accelerator: gpu
   precision: 16-mixed
-  # benchmark: True
   accumulate_grad_batches: 1
   max_epochs: 10000
 

@@ -11,10 +11,14 @@ class LumbarLoss(Metric):
     is_differentiable = True
     higher_is_better = False
 
-    def __init__(self):
+    def __init__(self, gamma: float = 1.0):
         super().__init__()
-        self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
-        self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
+        if gamma != 1.0:
+            self.loss_f = FocalLoss(gamma=gamma, ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
+            self.spinal_loss_f = FocalLoss(gamma=gamma, ignore_index=-1, from_logits=False, reduction="none")
+        else:
+            self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
+            self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
         self.add_state("y_pred_dicts", default=[], dist_reduce_fx="cat")
         self.add_state("y_true_dicts", default=[], dist_reduce_fx="cat")
 
@@ -76,3 +80,28 @@ class LumbarLoss(Metric):
         y_true_dict = utils.cat_dict_tensor(self.y_true_dicts)
         y_pred_dict = utils.cat_dict_tensor(self.y_pred_dicts)
         return self.jit_loss(y_true_dict, y_pred_dict)
+
+
+class FocalLoss(torch.nn.Module):
+    def __init__(self, gamma, weight=None, ignore_index=-100, reduction="mean", from_logits=True):
+        super().__init__()
+        self.gamma = gamma
+        self.ignore_index = ignore_index
+        self.reduction = reduction
+        self.from_logits = from_logits
+        if from_logits:
+            self.cross = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=self.ignore_index, reduction="none")
+        else:
+            self.cross = torch.nn.NLLLoss(weight=weight, ignore_index=self.ignore_index, reduction="none")
+
+    def forward(self, input_: torch.Tensor, target: torch.Tensor):
+        cross_entropy = self.cross(input_, target)
+        if self.from_logits:
+            input_ = input_.softmax(1)
+
+        target = target * (target != self.ignore_index).long()
+        input_prob = torch.gather(input_, 1, target.unsqueeze(1))
+        loss = torch.pow(1 - input_prob, self.gamma) * cross_entropy
+        if self.reduction == "mean":
+            return loss.mean()
+        return loss

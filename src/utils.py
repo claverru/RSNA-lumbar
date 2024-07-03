@@ -1,5 +1,6 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -70,30 +71,82 @@ def get_image_path(study_id, series_id, instance_number, img_dir = constants.TRA
     return img_path
 
 
-def scale_in(s):
-    return (s - 1)/(s.max() - 1)
+def min_max(s):
+    return (s - s.min())/(s.max() - s.min() + 1e-6)
+
+
+def manual_min_max(s, min, max):
+    return (s - min)/(max - min + 1e-6)
+
+
+def divide_n(s, n: float):
+    return s / n
+
+
+def identity(s):
+    return s
+
+
+def norm(s):
+    return (s - s.mean()) / (s.std() + 1e-7)
+
+
+norms = {
+    "ImageOrientationPatient_0": identity,
+    "ImageOrientationPatient_1": identity,
+    "ImageOrientationPatient_2": identity,
+    "ImageOrientationPatient_3": identity,
+    "ImageOrientationPatient_4": identity,
+    "ImageOrientationPatient_5": identity,
+    "ImagePositionPatient_0": partial(divide_n, n=200),
+    "ImagePositionPatient_1": partial(divide_n, n=200),
+    "ImagePositionPatient_2": partial(divide_n, n=500),
+    "PixelSpacing_0": identity,
+    "PixelSpacing_1": identity,
+    "SliceThickness": partial(divide_n, n=7),
+    "SliceLocation": partial(divide_n, n=750),
+    "SpacingBetweenSlices": partial(divide_n, n=7),
+    "PixelRepresentation": identity,
+    "Rows": None,
+    "Columns": None,
+    "BitsStored": partial(manual_min_max, min=12, max=16),
+    "HighBit": partial(manual_min_max, min=11, max=15),
+    "WindowCenter": None,
+    "WindowWidth": None,
+    "InstanceNumber": None
+}
+
+
+def normalize_meta(df):
+    print("Normalizing meta...")
+    cols = []
+    keys = []
+    for c, f in norms.items():
+        if f is not None:
+            cols.append(f(df[c]))
+            keys.append(f"{c}_norm")
+        cols.append(df.groupby("series_id")[c].transform(norm))
+        keys.append(f"{c}_series_norm")
+        cols.append(df.groupby("study_id")[c].transform(norm))
+        keys.append(f"{c}_study_norm")
+        cols.append(df.groupby("series_id")[c].transform(min_max))
+        keys.append(f"{c}_series_minmax_norm")
+        cols.append(df.groupby("study_id")[c].transform(min_max))
+        keys.append(f"{c}_study_minmax_norm")
+    norms_df = pd.concat(cols, keys=keys, axis=1)
+    basic_cols = ["study_id", "series_id", "instance_number"]
+    df = pd.concat([df[basic_cols], norms_df], axis=1)
+    return df
 
 
 def load_meta(path: Path = constants.META_PATH, normalize: bool = True):
+    print(f"Loading meta: {path}")
     df = pd.read_csv(path)
-
-    if not normalize:
-        return df
-
-    for c in df.columns:
-        if c in ("study_id", "series_id"):
-            continue
-        mean = df.groupby("series_id")[c].transform("mean")
-        std = df.groupby("series_id")[c].transform("std")
-        # df[f"{c}_mean"] = mean
-        # df[f"{c}_std"] = std
-        if c == "instance_number":
-            new_c = c + "_norm" if c == "instance_number" else c
-            norm = scale_in(df[c])
-        else:
-            new_c = c
-            norm = (df[c] - mean) / (std + 1e-7)
-        df[new_c] = norm
+    if normalize:
+        if path.stem.endswith("_norm"):
+            print("Meta already normalized.")
+            return df
+        return normalize_meta(df)
     return df
 
 

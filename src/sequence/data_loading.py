@@ -10,6 +10,9 @@ import torch
 from src import constants, utils
 
 
+N_IMG_ENSEMBLES = 7
+
+
 class Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
@@ -34,12 +37,12 @@ class Dataset(torch.utils.data.Dataset):
         return {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
 
     def do_aug(self, values: np.ndarray) -> np.ndarray:
-        mask = np.random.rand(values.shape[0], 5, 1) > self.aug
-        mask = mask.repeat(len(self.fids) // 5, -1).reshape(mask.shape[0], -1)
+        mask = np.random.rand(values.shape[0], N_IMG_ENSEMBLES, 1) > self.aug
+        mask = mask.repeat(len(self.fids) // N_IMG_ENSEMBLES, -1).reshape(mask.shape[0], -1)
         values[:, self.fids] *= mask
         return values
 
-    def get_feats(self, study_id, description): # (L, 1793, 5)
+    def get_feats(self, study_id, description):
         index = (study_id, description)
         if index in self.feats_index:
             values = self.df.loc[index].values.astype(np.float32)
@@ -81,6 +84,7 @@ def merge_dfs(
     df = df.sort_values(["study_id", "series_id", "instance_number"])
     df = pd.merge(df, feats, on=["series_id", "instance_number"])
     df = df.drop(columns=["instance_number", "series_id"]).set_index(["study_id", "series_description"]).sort_index()
+    print(df.head())
     return df
 
 
@@ -99,6 +103,7 @@ class DataModule(L.LightningDataModule):
             meta_path: Path = constants.META_PATH,
             desc_path: Path = constants.DESC_PATH,
             train_path: Path = constants.TRAIN_PATH,
+            aug: float = 0.2,
             n_splits: int = 5,
             this_split: int = 0,
             batch_size: int = 64,
@@ -108,6 +113,7 @@ class DataModule(L.LightningDataModule):
         self.n_splits = n_splits
         self.this_split = this_split
         self.batch_size = batch_size
+        self.aug = aug
         self.num_workers = num_workers
         self.df = merge_dfs(feats_path, meta_path, desc_path)
         self.train_df = utils.load_train(train_path).set_index("study_id").sort_index()
@@ -127,8 +133,8 @@ class DataModule(L.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             train_study_ids, val_study_ids = self.split()
-            self.train_ds = Dataset(train_study_ids, self.train_df, self.df, aug=0.2)
-            self.val_ds = Dataset(val_study_ids, self.train_df, self.df, aug=0)
+            self.train_ds = Dataset(train_study_ids, self.train_df, self.df, aug=self.aug)
+            self.val_ds = Dataset(val_study_ids, self.train_df, self.df, aug=0.0)
 
         if stage == "test":
             pass

@@ -2,7 +2,7 @@ from typing import Dict
 
 import torch
 
-from src import constants, model, metric
+from src import constants, model, losses
 
 
 RNNS = {
@@ -10,7 +10,9 @@ RNNS = {
     "gru": torch.nn.GRU
 }
 
-INPUT_SIZE = 1920 * 7 + 18 + 8
+M = 105
+
+INPUT_SIZE = 1920 * 7 + M + 8
 
 def get_att(emb_dim, n_heads, n_layers, dropout):
     layer = torch.nn.TransformerEncoderLayer(
@@ -27,6 +29,7 @@ def get_proj(emb_dim):
     )
 
 
+
 def get_head(in_features, dropout):
     return torch.nn.Sequential(
         torch.nn.Dropout(dropout),
@@ -37,8 +40,9 @@ def get_head(in_features, dropout):
 class LightningModule(model.LightningModule):
     def __init__(self, emb_dim, n_heads, n_layers, att_dropout, linear_dropout, **kwargs):
         super().__init__(**kwargs)
-        self.train_loss = metric.LumbarLoss()
-        self.val_loss = metric.LumbarLoss()
+        self.train_loss = losses.LumbarLoss()
+        # self.train_loss_2 = losses.FocalLoss(ignore_index=-1, gamma=2, alpha=torch.tensor([1., 2., 4.]))
+        self.val_loss = losses.LumbarLoss()
 
         self.proj = get_proj(emb_dim)
         self.seq = get_att(emb_dim, n_heads, n_layers, att_dropout)
@@ -48,10 +52,11 @@ class LightningModule(model.LightningModule):
             {cl: get_head(emb_dim, linear_dropout) for cl in constants.CONDITION_LEVEL}
         )
 
-
     def forward(self, x: torch.Tensor, desc: torch.Tensor) -> Dict[str, torch.Tensor]:
         padding_mask = desc == 3
+
         desc_emb = self.emb(desc) # B, L, 8
+
         x = torch.concat([x, desc_emb], -1)
         x = self.proj(x)
         x = self.seq(x, src_key_padding_mask=padding_mask)
@@ -67,9 +72,10 @@ class LightningModule(model.LightningModule):
         y_pred_dict = self.forward(x, desc)
         batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
         losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y_true_dict, y_pred_dict)
+        # losses = {k: self.train_loss_2(y_pred_dict[k], y_true_dict[k]) for k in constants.CONDITION_LEVEL}
 
         for k, v in losses.items():
-            self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
+            self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False, batch_size=batch_size)
 
         loss = sum(losses.values()) / len(losses)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
@@ -85,7 +91,7 @@ class LightningModule(model.LightningModule):
         losses = self.val_loss.compute()
         self.val_loss.reset()
         for k, v in losses.items():
-            self.log(f"val_{k}_loss", v, on_epoch=True, prog_bar=True, on_step=False)
+            self.log(f"val_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False)
 
         loss = sum(losses.values()) / len(losses)
         self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
