@@ -10,7 +10,7 @@ RNNS = {
     "gru": torch.nn.GRU
 }
 
-M = 105
+M = 103
 
 INPUT_SIZE = 1920 * 7 + M + 8
 
@@ -41,7 +41,7 @@ class LightningModule(model.LightningModule):
     def __init__(self, emb_dim, n_heads, n_layers, att_dropout, linear_dropout, **kwargs):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss()
-        # self.train_loss_2 = losses.FocalLoss(ignore_index=-1, gamma=2, alpha=torch.tensor([1., 2., 4.]))
+        # self.train_loss_2 = losses.FocalLoss(ignore_index=-1, gamma=5, weight=torch.tensor([1., 2., 4.]))
         self.val_loss = losses.LumbarLoss()
 
         self.proj = get_proj(emb_dim)
@@ -72,12 +72,12 @@ class LightningModule(model.LightningModule):
         y_pred_dict = self.forward(x, desc)
         batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
         losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y_true_dict, y_pred_dict)
-        # losses = {k: self.train_loss_2(y_pred_dict[k], y_true_dict[k]) for k in constants.CONDITION_LEVEL}
+        # losses2 = {k: self.train_loss_2(y_pred_dict[k], y_true_dict[k]) for k in constants.CONDITION_LEVEL}
 
         for k, v in losses.items():
             self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False, batch_size=batch_size)
 
-        loss = sum(losses.values()) / len(losses)
+        loss = sum(losses.values()) / len(losses) # + sum(losses2.values()) / len(losses2)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=False, batch_size=batch_size)
 
         return loss

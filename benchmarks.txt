@@ -1,2 +1,2 @@
 image (380): 0.4690
-sequence: around 0.54
+sequence (380 x 7): 0.5393

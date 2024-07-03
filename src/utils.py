@@ -98,14 +98,14 @@ norms = {
     "ImageOrientationPatient_3": identity,
     "ImageOrientationPatient_4": identity,
     "ImageOrientationPatient_5": identity,
-    "ImagePositionPatient_0": partial(divide_n, n=200),
-    "ImagePositionPatient_1": partial(divide_n, n=200),
-    "ImagePositionPatient_2": partial(divide_n, n=500),
+    "ImagePositionPatient_0": None,
+    "ImagePositionPatient_1": None,
+    "ImagePositionPatient_2": None,
     "PixelSpacing_0": identity,
     "PixelSpacing_1": identity,
-    "SliceThickness": partial(divide_n, n=7),
-    "SliceLocation": partial(divide_n, n=750),
-    "SpacingBetweenSlices": partial(divide_n, n=7),
+    "SliceThickness": None,
+    "SliceLocation": None,
+    "SpacingBetweenSlices": None,
     "PixelRepresentation": identity,
     "Rows": None,
     "Columns": None,
@@ -113,7 +113,8 @@ norms = {
     "HighBit": partial(manual_min_max, min=11, max=15),
     "WindowCenter": None,
     "WindowWidth": None,
-    "InstanceNumber": None
+    "InstanceNumber": None,
+    "RescaleSlope": None
 }
 
 
@@ -134,8 +135,7 @@ def normalize_meta(df):
         cols.append(df.groupby("study_id")[c].transform(min_max))
         keys.append(f"{c}_study_minmax_norm")
     norms_df = pd.concat(cols, keys=keys, axis=1)
-    basic_cols = ["study_id", "series_id", "instance_number"]
-    df = pd.concat([df[basic_cols], norms_df], axis=1)
+    df = pd.concat([df, norms_df], axis=1)
     return df
 
 
@@ -145,7 +145,8 @@ def load_meta(path: Path = constants.META_PATH, normalize: bool = True):
     if normalize:
         if path.stem.endswith("_norm"):
             print("Meta already normalized.")
-            return df
+            basic_cols = ["study_id", "series_id", "instance_number"]
+            return df[basic_cols + [c for c in df.columns if c.endswith("_norm")]]
         return normalize_meta(df)
     return df
 

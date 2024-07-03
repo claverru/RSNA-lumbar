@@ -2,46 +2,32 @@ monitor: val_loss
 monitor_mode: min
 seed_everything: 128
 
-data:
-  class_path: src.sequence.data_loading.DataModule
-  init_args:
-    batch_size: 32
-    aug: 0.1
-    feats_path: data/feats_densenet200_7.parquet
-    meta_path: data/metadata_v4_norm.csv
-
 model:
-  class_path: src.sequence.model.LightningModule
+  class_path: src.contrast.model.LightningModule
   init_args:
-    emb_dim: 256
-    n_heads: 8
-    n_layers: 4
-    att_dropout: 0.2
-    linear_dropout: 0.2
+    arch: densenet201
+    dropout: 0.3
     optimizer:
       class_path: torch.optim.Adam
       init_args:
         lr: 1.0
-    # lr_scheduler:
-      # class_path: torch.optim.lr_scheduler.OneCycleLR
-      # init_args:
-      #   max_lr: 1e-3
-      #   epochs: 40
-      #   steps_per_epoch: 49
-      #   pct_start: 0.1
-      #   div_factor: 2000
-      #   # anneal_strategy: cosine
-      #   final_div_factor: 1500
     lr_scheduler:
-      class_path: torch.optim.lr_scheduler.CyclicLR
+      class_path: torch.optim.lr_scheduler.OneCycleLR
       init_args:
-        base_lr: 1.0e-05
-        max_lr: 3.0e-3
-        step_size_up: 98
-        step_size_down: 147
-        mode: exp_range
-        gamma: 0.999
+        max_lr: 1e-4
+        epochs: 16
+        steps_per_epoch: 614
+        pct_start: 0.125
+        div_factor: 1000
+        final_div_factor: 50
     interval: step
+
+data:
+  class_path: src.contrast.data_loading.DataModule
+  init_args:
+    img_size: 380
+    batch_size: 16
+    img_dir: data/train_images_natural_v2
 
 trainer:
   logger:
@@ -54,20 +40,21 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 10
+        patience: 2
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         monitor: ${monitor}
         mode: ${monitor_mode}
         filename: '{epoch}_{${monitor}:.4f}'
+    # - class_path: src.contrast.writer.Writer
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
-  # log_every_n_steps: 10
 
   accelerator: gpu
   precision: 16-mixed
+  benchmark: True
   accumulate_grad_batches: 1
   max_epochs: 10000
 

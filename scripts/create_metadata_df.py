@@ -7,7 +7,7 @@ import tyro
 from src import utils, constants
 
 
-ignore = {"RescaleIntercept", "RescaleSlope", "SamplesPerPixel", "BitsAllocated"}
+ignore = {"RescaleIntercept", "SamplesPerPixel", "BitsAllocated"} # constant
 
 
 def get_metadata(img_path):
@@ -37,6 +37,8 @@ def main(out_path: Path, normalize: bool = True):
     df = pd.concat([imgs_df, meta], axis=1)
     if normalize:
         df = utils.normalize_meta(df)
+    print(df.head())
+    print(len([c for c in df.columns if c.endswith("_norm")]))
     df.to_csv(out_path, index=False)
 
 
