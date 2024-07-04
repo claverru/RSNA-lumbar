@@ -18,10 +18,9 @@ class Writer(BasePredictionWriter):
 
         # NOTE: reduces significantly memory size, maybe try without it in the future
         preds_df = pd.DataFrame(preds, columns=cols)#.round(2)
+        print(f"Preds shape: {preds.shape}")
 
         df = trainer.predict_dataloaders.dataset.df
-
-        # df["version"] = int(out_dir.stem.split("_")[1])
 
         out_df = pd.concat([df, preds_df], axis=1)
 

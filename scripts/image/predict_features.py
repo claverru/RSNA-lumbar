@@ -4,7 +4,8 @@ import tyro
 
 
 def main(ckpts_dir: Path):
-    for ckpt_dir in sorted(ckpts_dir.glob("*")):
+    for ckpt_dir in sorted(ckpts_dir.glob("*"), key=lambda x: int(x.stem.split("_")[1])):
+        print(f"Predicting from {ckpt_dir}")
         config_path = next(ckpt_dir.rglob("*config.yaml"))
         ckpt_path = next(ckpt_dir.rglob("*.ckpt"))
         subprocess.run([

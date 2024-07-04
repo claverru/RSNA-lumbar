@@ -32,6 +32,17 @@ class LightningModule(model.LightningModule):
 
         return outs
 
+    def forward_features(self, x):
+        feats = self.backbone(x)
+        levels = {k: m(feats) for k, m in self.levels.items()}
+        outs = {}
+        for level in constants.LEVELS:
+            for condition in constants.CONDITIONS_COMPLETE:
+                k = f"{condition}_{level}"
+                outs[k] = self.heads[k](levels[level])
+        result = torch.concat([feats] + list(levels.values()) + list(outs.values()), -1)
+        return result
+
     def do_loss(self, y_true_dict, y_pred_dict):
         loss = 0.0
         n = 0
@@ -59,4 +70,4 @@ class LightningModule(model.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         X = batch
-        return self.backbone(X)
+        return self.forward_features(X)
