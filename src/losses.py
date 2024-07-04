@@ -11,13 +11,15 @@ class LumbarLoss(Metric):
     is_differentiable = True
     higher_is_better = False
 
-    def __init__(self, gamma: float = 1.0):
+    def __init__(self, gamma: float = 1.0, label_smoothing: float = 0.0):
         super().__init__()
         if gamma != 1.0:
             self.loss_f = FocalLoss(gamma=gamma, ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
             self.spinal_loss_f = FocalLoss(gamma=gamma, ignore_index=-1, from_logits=False, reduction="none")
         else:
-            self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
+            self.loss_f = torch.nn.CrossEntropyLoss(
+                ignore_index=-1, weight=torch.tensor([1., 2., 4.]), label_smoothing=label_smoothing
+            )
             self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
         self.add_state("y_pred_dicts", default=[], dist_reduce_fx="cat")
         self.add_state("y_true_dicts", default=[], dist_reduce_fx="cat")
