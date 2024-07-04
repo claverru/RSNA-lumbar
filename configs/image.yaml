@@ -6,6 +6,7 @@ model:
   class_path: src.image.model.LightningModule
   init_args:
     arch: densenet201
+    level_emb_dim: 64
     dropout: 0.3
     optimizer:
       class_path: torch.optim.Adam
@@ -25,7 +26,7 @@ model:
 data:
   class_path: src.image.data_loading.DataModule
   init_args:
-    img_size: 448
+    img_size: 380
     batch_size: 32
     img_dir: data/train_images_natural_v2
 
@@ -40,7 +41,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 2
+        patience: 1
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:

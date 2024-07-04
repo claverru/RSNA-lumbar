@@ -21,6 +21,16 @@ SEVERITY2LABEL = {"Normal/Mild": 0, "Moderate": 1, "Severe": 2}
 
 DESCRIPTIONS = ["Sagittal T2/STIR", "Sagittal T1", "Axial T2"]
 
+LEVELS = ["l1_l2", "l2_l3", "l3_l4", "l4_l5", "l5_s1"]
+
+CONDITIONS_COMPLETE = [
+    "left_neural_foraminal_narrowing",
+    "right_neural_foraminal_narrowing",
+    "left_subarticular_stenosis",
+    "right_subarticular_stenosis",
+    "spinal_canal_stenosis"
+]
+
 CONDITION_LEVEL = [
     "left_neural_foraminal_narrowing_l1_l2",
     "left_neural_foraminal_narrowing_l2_l3",

@@ -4,24 +4,32 @@ import timm
 from src import constants, model
 
 
-def get_head(in_dim, dropout):
+def get_head(in_dim, out_dim, dropout):
     return torch.nn.Sequential(
         torch.nn.Dropout(dropout),
-        torch.nn.Linear(in_dim, 3)
+        torch.nn.Linear(in_dim, out_dim)
     )
 
 
 class LightningModule(model.LightningModule):
-    def __init__(self, arch: str = "resnet34", dropout: float = 0.2, **kwargs):
+    def __init__(self, arch: str = "resnet34", level_emb_dim: int = 32, dropout: float = 0.2, **kwargs):
         super().__init__(**kwargs)
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=1).eval()
         n_feats = self.backbone.num_features
-        self.heads = torch.nn.ModuleDict({out: get_head(n_feats, dropout) for out in constants.CONDITION_LEVEL})
+
+        self.levels = torch.nn.ModuleDict({out: get_head(n_feats, level_emb_dim, dropout) for out in constants.LEVELS})
+        self.heads = torch.nn.ModuleDict({out: get_head(level_emb_dim, 3, dropout) for out in constants.CONDITION_LEVEL})
 
     def forward(self, x):
         feats = self.backbone(x)
-        outs = {k: head(feats) for k, head in self.heads.items()}
+        levels = {k: m(feats) for k, m in self.levels.items()}
+        outs = {}
+        for level in constants.LEVELS:
+            for condition in constants.CONDITIONS_COMPLETE:
+                k = f"{condition}_{level}"
+                outs[k] = self.heads[k](levels[level])
+
         return outs
 
     def do_loss(self, y_true_dict, y_pred_dict):
