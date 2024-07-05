@@ -3,16 +3,8 @@ from typing import Dict
 import torch
 
 from src import constants, model, losses
+from src.sequence.constants import INPUT_SIZE, D
 
-
-RNNS = {
-    "lstm": torch.nn.LSTM,
-    "gru": torch.nn.GRU
-}
-
-M = 103
-
-INPUT_SIZE = 1920 * 7 + M + 8
 
 def get_att(emb_dim, n_heads, n_layers, dropout):
     layer = torch.nn.TransformerEncoderLayer(
@@ -46,7 +38,7 @@ class LightningModule(model.LightningModule):
 
         self.proj = get_proj(emb_dim)
         self.seq = get_att(emb_dim, n_heads, n_layers, att_dropout)
-        self.emb = torch.nn.Embedding(4, 8, padding_idx=3)
+        self.emb = torch.nn.Embedding(4, D, padding_idx=3)
 
         self.heads = torch.nn.ModuleDict(
             {cl: get_head(emb_dim, linear_dropout) for cl in constants.CONDITION_LEVEL}

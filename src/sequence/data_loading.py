@@ -8,9 +8,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 import torch
 
 from src import constants, utils
-
-
-N_IMG_ENSEMBLES = 7
+from src.sequence.constants import *
 
 
 class Dataset(torch.utils.data.Dataset):
