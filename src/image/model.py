@@ -13,21 +13,26 @@ def get_head(in_dim, out_dim, dropout):
 
 
 class HierarchyHead(torch.nn.Module):
-    def __init__(self, n_feats: int, emb_dim: int, dropout: float):
+    def __init__(self, n_feats: int, emb_dim: int, dropout: float, from_levels: bool = False):
         super().__init__()
         self.emb_dim = emb_dim
         self.n_levels = len(constants.LEVELS)
         self.n_conditions = len(constants.CONDITIONS_COMPLETE)
         self.n_severities = len(constants.SEVERITY2LABEL)
 
-        self.levels = get_head(n_feats, self.n_levels * emb_dim, dropout)
+        self.from_levels = from_levels
+        if not from_levels:
+            self.levels = get_head(n_feats, self.n_levels * emb_dim, dropout)
         self.condition_severity = torch.nn.Parameter(
             torch.randn(self.n_conditions, self.n_severities, emb_dim), requires_grad=True
         )
 
     def forward_features(self, feats: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        B, _ = feats.shape
-        levels = self.levels(feats).reshape(B, self.n_levels, self.emb_dim)
+        B = feats.shape[0]
+        if self.from_levels:
+            levels = feats
+        else:
+            levels = self.levels(feats).reshape(B, self.n_levels, self.emb_dim)
         out = torch.einsum("BLE,CSE->BCLS", levels, self.condition_severity)
         return levels, out
 
