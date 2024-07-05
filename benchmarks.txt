@@ -1,2 +1,2 @@
-image (380): 0.4534
+image (380, hierarchical): 0.4513
 sequence (380 x 7): 0.5393

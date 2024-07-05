@@ -6,7 +6,7 @@ model:
   class_path: src.image.model.LightningModule
   init_args:
     arch: densenet201
-    level_emb_dim: 64
+    emb_dim: 64
     dropout: 0.3
     optimizer:
       class_path: torch.optim.Adam
@@ -16,9 +16,9 @@ model:
       class_path: torch.optim.lr_scheduler.OneCycleLR
       init_args:
         max_lr: 1e-4
-        epochs: 16
+        epochs: 10
         steps_per_epoch: 614
-        pct_start: 0.125
+        pct_start: 0.2
         div_factor: 1000
         final_div_factor: 50
     interval: step
@@ -41,7 +41,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 1
+        patience: 2
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:

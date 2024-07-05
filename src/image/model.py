@@ -1,3 +1,4 @@
+from typing import Dict, Tuple
 import torch
 import timm
 
@@ -11,36 +12,55 @@ def get_head(in_dim, out_dim, dropout):
     )
 
 
+class HierarchyHead(torch.nn.Module):
+    def __init__(self, n_feats: int, emb_dim: int, dropout: float):
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.n_levels = len(constants.LEVELS)
+        self.n_conditions = len(constants.CONDITIONS_COMPLETE)
+        self.n_severities = len(constants.SEVERITY2LABEL)
+
+        self.levels = get_head(n_feats, self.n_levels * emb_dim, dropout)
+        self.condition_severity = torch.nn.Parameter(
+            torch.randn(self.n_conditions, self.n_severities, emb_dim), requires_grad=True
+        )
+
+    def forward_features(self, feats: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        B, _ = feats.shape
+        levels = self.levels(feats).reshape(B, self.n_levels, self.emb_dim)
+        out = torch.einsum("BLE,CSE->BCLS", levels, self.condition_severity)
+        return levels, out
+
+    def forward(self, feats: torch.Tensor) -> Dict[str, torch.Tensor]:
+        _, out = self.forward_features(feats)
+        outs = {}
+        for i, c in enumerate(constants.CONDITIONS_COMPLETE):
+            for j, l in enumerate(constants.LEVELS):
+                k = f"{c}_{l}"
+                outs[k] = out[:, i, j]
+        return outs
+
+
 class LightningModule(model.LightningModule):
-    def __init__(self, arch: str = "resnet34", level_emb_dim: int = 32, dropout: float = 0.2, **kwargs):
+    def __init__(self, arch: str = "resnet34", emb_dim: int = 32, dropout: float = 0.2, **kwargs):
         super().__init__(**kwargs)
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
         self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=1).eval()
         n_feats = self.backbone.num_features
-
-        self.levels = torch.nn.ModuleDict({out: get_head(n_feats, level_emb_dim, dropout) for out in constants.LEVELS})
-        self.heads = torch.nn.ModuleDict({out: get_head(level_emb_dim, 3, dropout) for out in constants.CONDITION_LEVEL})
+        self.head = HierarchyHead(n_feats, emb_dim, dropout)
 
     def forward(self, x):
         feats = self.backbone(x)
-        levels = {k: m(feats) for k, m in self.levels.items()}
-        outs = {}
-        for level in constants.LEVELS:
-            for condition in constants.CONDITIONS_COMPLETE:
-                k = f"{condition}_{level}"
-                outs[k] = self.heads[k](levels[level])
-
+        outs = self.head(feats)
         return outs
 
     def forward_features(self, x):
         feats = self.backbone(x)
-        levels = {k: m(feats) for k, m in self.levels.items()}
-        outs = {}
-        for level in constants.LEVELS:
-            for condition in constants.CONDITIONS_COMPLETE:
-                k = f"{condition}_{level}"
-                outs[k] = self.heads[k](levels[level])
-        result = torch.concat([feats] + list(levels.values()) + list(outs.values()), -1)
+        levels, out = self.head.forward_features(feats)
+        B = feats.shape[0]
+        levels = levels.reshape(B, -1)
+        out = out.reshape(B, -1)
+        result = torch.concat([feats, levels, out], -1)
         return result
 
     def do_loss(self, y_true_dict, y_pred_dict):

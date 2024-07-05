@@ -5,8 +5,7 @@ import pandas as pd
 import tyro
 
 
-
-def main(metrics_path: Path):
+def main(metrics_path: Path = Path("lightning_logs/version_0/metrics.csv")):
     fig, axes = plt.subplots(nrows=2)
     df = pd.read_csv(metrics_path)
     train = df.train_loss.dropna().reset_index(drop=True)
