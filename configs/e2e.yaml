@@ -2,35 +2,38 @@ monitor: val_loss
 monitor_mode: min
 seed_everything: 128
 
-optimizer:
-  class_path: torch.optim.Adam
-  init_args:
-    lr: 1e-04
-
-lr_scheduler:
-  class_path: lightning.pytorch.cli.ReduceLROnPlateau
-  init_args:
-    factor: 0.1
-    patience: 1
-    monitor: ${monitor}
-    mode: ${monitor_mode}
 
 model:
   class_path: src.e2e.model.LightningModule
   init_args:
     arch: tf_efficientnet_b2.ns_jft_in1k
-    emb_dim: 128
-    n_heads: 4
+    emb_dim: 32
+    n_heads: 2
     n_layers: 2
     att_dropout: 0.1
     linear_dropout: 0.1
+    optimizer:
+      class_path: torch.optim.Adam
+      init_args:
+        lr: 1.0
+    lr_scheduler:
+      class_path: torch.optim.lr_scheduler.CyclicLR
+      init_args:
+        base_lr: 1e-7
+        max_lr: 1e-4
+        step_size_up: 591
+        step_size_down: 591
+        mode: exp_range
+        gamma: 0.999
+    interval: step
 
 data:
   class_path: src.e2e.data_loading.DataModule
   init_args:
-    img_dir: data/train_images_260
+    img_dir: data/train_images_natural_v2
     batch_size: 8
     img_size: 260
+    meta_path: data/metadata_v4_norm.csv
 
 trainer:
   logger:
@@ -61,10 +64,10 @@ trainer:
     #     verbose: True
     #     should_align: True
     #     train_bn: True
-  log_every_n_steps: 10
+  log_every_n_steps: 1
   accelerator: gpu
   precision: 16-mixed
-  accumulate_grad_batches: 2
+  accumulate_grad_batches: 1
   max_epochs: 10000
 
 ckpt_path: null

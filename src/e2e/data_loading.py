@@ -21,7 +21,7 @@ class Dataset(torch.utils.data.Dataset):
         df: pd.DataFrame,
         train: pd.DataFrame,
         img_size: int,
-        transforms: Optional[A.Compose] = None
+        transforms: A.Compose
     ):
         self.df = df
         self.train = train
@@ -47,14 +47,14 @@ class Dataset(torch.utils.data.Dataset):
             ids = np.linspace(0, L - 1, min(N, L)).round()
             return chunk.iloc[ids]
 
-    def get_images(self, chunk) -> np.ndarray:
+    def get_images(self, chunk) -> torch.Tensor:
         if chunk is not None:
             img_series = chunk["image_path"].apply(
-                lambda x: cv2.imread(str(x), cv2.IMREAD_GRAYSCALE)
+                lambda x: self.transforms(image=cv2.imread(str(x), cv2.IMREAD_GRAYSCALE))["image"]
             )
-            imgs = np.stack(img_series.values, -1)
+            imgs = torch.stack(img_series.to_list(), 0)
         else:
-            imgs = np.zeros((self.img_size, self.img_size, 1), dtype=np.uint8)
+            imgs = torch.zeros((1, 1, self.img_size, self.img_size), dtype=torch.float32)
         return imgs
 
     def get_metadata(self, chunk) -> np.ndarray:
@@ -67,25 +67,29 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         study_id = self.study_ids[index]
         labels = self.get_labels(study_id)
-        X = {}
-        metadatas = {}
-        for description in constants.DESCRIPTIONS:
+        X = []
+        metadatas = []
+        desc = []
+        for i, description in enumerate(constants.DESCRIPTIONS):
             chunk = self.get_chunk(study_id, description)
-
-            imgs = self.get_images(chunk)
+            x = self.get_images(chunk)
+            X.append(x)
             metadata = self.get_metadata(chunk)
+            metadatas.append(torch.tensor(metadata))
+            desc += [i] * len(x)
 
-            X[description] = self.transforms(image=imgs)["image"][:, None, ...]
-            metadatas[description] = torch.tensor(metadata)
+        desc = torch.tensor(desc)
+        X = torch.concat(X, 0)
+        metadatas = torch.concat(metadatas)
 
-        return X, metadatas, labels
+        return X, metadatas, desc, labels
 
 
-def get_transforms():
+def get_transforms(img_size):
     return A.Compose(
         [
-            # A.Resize(img_size, img_size),
-            A.Normalize((0.449, ), (0.226, )),
+            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
+            A.Normalize((0.485, ), (0.229, )),
             ToTensorV2(),
         ]
     )
@@ -109,11 +113,12 @@ def get_df(
 
 
 def collate_fn(data):
-    X, metadatas, labels = zip(*data)
-    X = utils.cat_dict_tensor(X, lambda x: utils.pad_sequences(x, padding_value=0))
-    metadatas = utils.cat_dict_tensor(metadatas, lambda x: utils.pad_sequences(x, padding_value=-1))
+    X, meta, desc, labels = zip(*data)
+    X = utils.pad_sequences(X, padding_value=0)
+    desc = utils.pad_sequences(desc, 3)
+    meta = utils.pad_sequences(meta, 0)
     labels = utils.cat_dict_tensor(labels, torch.stack)
-    return X, metadatas, labels
+    return X, meta, desc, labels
 
 
 class DataModule(L.LightningDataModule):
@@ -136,7 +141,7 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_dir = Path(img_dir)
-        self.df = get_df(meta_path, desc_path, self.img_dir)
+        self.df = get_df(Path(meta_path), Path(desc_path), self.img_dir)
         self.train = utils.load_train(train_path).set_index("study_id").sort_index()
 
     def split(self) -> Tuple[List[int], List[int]]:
@@ -156,14 +161,14 @@ class DataModule(L.LightningDataModule):
                 self.df,
                 self.train,
                 self.img_size,
-                get_transforms()
+                get_transforms(self.img_size)
             )
             self.val_ds = Dataset(
                 val_study_ids,
                 self.df,
                 self.train,
                 self.img_size,
-                get_transforms()
+                get_transforms(self.img_size)
             )
 
         if stage == "test":
@@ -194,9 +199,14 @@ class DataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    dm = DataModule(batch_size=8, img_dir="data/train_images_224")
+    import yaml
+
+    config = yaml.load(open("configs/e2e.yaml"), Loader=yaml.FullLoader)
+    dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for x, meta, y in dm.train_dataloader():
-        print({k: (v.shape, v.dtype) for k, v in x.items()})
-        print({k: (v.shape, v.dtype) for k, v in meta.items()})
+    for X, meta, desc, y in dm.train_dataloader():
+        print(X.shape, X.dtype)
+        print(meta.shape, meta.dtype)
+        print(desc.shape, desc.dtype)
         print({k: (v.shape, v.dtype) for k, v in y.items()})
+        input()
