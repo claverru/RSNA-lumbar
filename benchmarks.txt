@@ -1,2 +1,11 @@
-image (380, hierarchical): 0.4503
-sequence (380 x 7): 0.5393
+image (380): 0.4534
+-> sequence (x7 image): 0.5393
+
+image (380, hierarchical 64): 0.4513
+
+image (380, hierarchical 16): 0.4503
+
+image (380, hierarchical condition 8): 0.4443
+
+image (380, hierarchical condition 8, unseen 0.2): 0.3033
+-> sequence (x5 image): 0.5279

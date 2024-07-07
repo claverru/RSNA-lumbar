@@ -18,25 +18,25 @@ class HierarchyHead(torch.nn.Module):
         self.emb_dim = emb_dim
         self.n_levels = len(constants.LEVELS)
         self.n_conditions = len(constants.CONDITIONS_COMPLETE)
-        self.n_severities = len(constants.SEVERITY2LABEL)
+        self.n_severities = len(constants.SEVERITY2LABEL) + 1
 
         self.from_levels = from_levels
         if not from_levels:
-            self.levels = get_head(n_feats, self.n_levels * emb_dim, dropout)
+            self.levels = get_head(n_feats, self.n_conditions * self.n_levels * emb_dim, dropout)
         self.condition_severity = torch.nn.Parameter(
             torch.randn(self.n_conditions, self.n_severities, emb_dim), requires_grad=True
         )
 
-    def forward_features(self, feats: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, feats: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         B = feats.shape[0]
         if self.from_levels:
             levels = feats
         else:
-            levels = self.levels(feats).reshape(B, self.n_levels, self.emb_dim)
-        out = torch.einsum("BLE,CSE->BCLS", levels, self.condition_severity)
+            levels = self.levels(feats).reshape(B, self.n_conditions, self.n_levels, self.emb_dim)
+        out = torch.einsum("BCLD,CSD->BCLS", levels, self.condition_severity)
         return levels, out
 
-    def forward(self, feats: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward_train(self, feats: torch.Tensor) -> Dict[str, torch.Tensor]:
         _, out = self.forward_features(feats)
         outs = {}
         for i, c in enumerate(constants.CONDITIONS_COMPLETE):
@@ -49,19 +49,19 @@ class HierarchyHead(torch.nn.Module):
 class LightningModule(model.LightningModule):
     def __init__(self, arch: str = "resnet34", emb_dim: int = 32, dropout: float = 0.2, **kwargs):
         super().__init__(**kwargs)
-        self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
+        self.loss_f = torch.nn.CrossEntropyLoss(weight=torch.tensor([1., 2., 4., 0.2]))
         self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=1).eval()
         n_feats = self.backbone.num_features
         self.head = HierarchyHead(n_feats, emb_dim, dropout)
 
-    def forward(self, x):
+    def forward_train(self, x):
         feats = self.backbone(x)
         outs = self.head(feats)
         return outs
 
-    def forward_features(self, x):
+    def forward(self, x):
         feats = self.backbone(x)
-        levels, out = self.head.forward_features(feats)
+        levels, out = self.head.forward(feats)
         B = feats.shape[0]
         levels = levels.reshape(B, -1)
         out = out.reshape(B, -1)
@@ -81,18 +81,18 @@ class LightningModule(model.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y_true_dict = batch
-        y_pred_dict = self.forward(x)
+        y_pred_dict = self.forward_train(x)
         loss = self.do_loss(y_true_dict, y_pred_dict)
         self.log('train_loss', loss, on_epoch=True, prog_bar=True, on_step=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y_true_dict = batch
-        y_pred_dict = self.forward(x)
+        y_pred_dict = self.forward_train(x)
         loss = self.do_loss(y_true_dict, y_pred_dict)
         self.log('val_loss', loss, on_epoch=True, prog_bar=True, on_step=False)
         return loss
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         X = batch
-        return self.forward_features(X)
+        return self(X)

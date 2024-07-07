@@ -13,7 +13,7 @@ from src.image import model
 class Ensemble(L.LightningModule):
     def __init__(self, modules: List[torch.nn.Module]):
         super().__init__()
-        self.module_list = torch.nn.ModuleList([module.backbone for module in modules])
+        self.module_list = torch.nn.ModuleList([module for module in modules])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.concat([module(x) for module in self.module_list], -1)
@@ -39,12 +39,19 @@ def save(ckpts_dir: Path, out_dir: Path):
     modules, config = load_from_ckpts_dir(ckpts_dir)
     ens = Ensemble(modules)
 
+    img_size = config["data"]["init_args"]["img_size"]
     model_path = out_dir / "model.pt"
     config_path = out_dir / "config.yaml"
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ens.to_torchscript(model_path)
+
+    ts = torch.jit.load(model_path)
+
+    example = torch.randn(2, 1, img_size, img_size)
+    print(ts(example).shape)
+    print(ts(example).shape)
 
     yaml.dump(config, open(config_path, "w"))
 
