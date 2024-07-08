@@ -13,12 +13,14 @@ def get_head(in_dim, out_dim, dropout):
 
 
 class HierarchyHead(torch.nn.Module):
-    def __init__(self, n_feats: int, emb_dim: int, dropout: float, from_levels: bool = False):
+    def __init__(self, n_feats: int, emb_dim: int, dropout: float, from_levels: bool = False, with_unseen: bool = True):
         super().__init__()
         self.emb_dim = emb_dim
         self.n_levels = len(constants.LEVELS)
         self.n_conditions = len(constants.CONDITIONS_COMPLETE)
-        self.n_severities = len(constants.SEVERITY2LABEL) + 1
+        self.n_severities = len(constants.SEVERITY2LABEL)
+        if with_unseen:
+            self.n_severities += 1
 
         self.from_levels = from_levels
         if not from_levels:
@@ -37,7 +39,7 @@ class HierarchyHead(torch.nn.Module):
         return levels, out
 
     def forward_train(self, feats: torch.Tensor) -> Dict[str, torch.Tensor]:
-        _, out = self.forward_features(feats)
+        _, out = self.forward(feats)
         outs = {}
         for i, c in enumerate(constants.CONDITIONS_COMPLETE):
             for j, l in enumerate(constants.LEVELS):
@@ -56,7 +58,7 @@ class LightningModule(model.LightningModule):
 
     def forward_train(self, x):
         feats = self.backbone(x)
-        outs = self.head(feats)
+        outs = self.head.forward_train(feats)
         return outs
 
     def forward(self, x):

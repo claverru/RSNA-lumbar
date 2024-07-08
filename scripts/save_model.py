@@ -8,7 +8,7 @@ import lightning as L
 import numpy as np
 import yaml
 
-from src.study import model, constants as study_constants, data_loading
+from src.sequence import model, data_loading, constants
 
 
 class Ensemble(L.LightningModule):
@@ -16,8 +16,8 @@ class Ensemble(L.LightningModule):
         super().__init__()
         self.module_list = torch.nn.ModuleList(modules)
 
-    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
-        result_list: List[Dict[str, torch.Tensor]] = [module(x) for module in self.module_list]
+    def forward(self, x: torch.Tensor, desc: torch.Tensor) -> Dict[str, torch.Tensor]:
+        result_list: List[Dict[str, torch.Tensor]] = [module(x, desc) for module in self.module_list]
         result_dict: Dict[str, torch.Tensor] = {}
         for k in result_list[0]:
             init = torch.zeros_like(result_list[0][k])
@@ -49,27 +49,25 @@ def save(checkpoints_dir: Path, out_dir: Path):
     model_path = out_dir / "model.pt"
     config_path = out_dir / "config.yaml"
     metrics_path = out_dir / "metrics.yaml"
-    transforms_path = out_dir / "transforms.yaml"
-
-    img_size = config["data"]["init_args"]["img_size"]
-
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        ens.to_torchscript(model_path)
-    except:
-        print("fallback to trace method")
-        x = torch.randn(1, 3, study_constants.IMGS_PER_DESC, img_size, img_size)
-        ens.to_torchscript(model_path, "trace", x, strict=False)
+
+    x = torch.randn(2, 3, constants.INPUT_SIZE - constants.D)
+    desc = torch.randint(0, 4, (2, 3))
+    example_input = (x, desc)
+    ts = ens.to_torchscript(model_path, "trace", example_inputs=example_input, strict=False)
+
+    print({k: v.shape for k, v in ts(*example_input).items()})
+
+    x = torch.randn(4, 5, constants.INPUT_SIZE - constants.D)
+    desc = torch.randint(0, 4, (4, 5))
+    example_input = (x, desc)
+    print({k: v.shape for k, v in ts(*example_input).items()})
+
     yaml.dump(config, open(config_path, "w"))
-    metrics = {
-        "losses": losses,
-        "mean": float(np.mean(losses)),
-        "std": float(np.std(losses))
-    }
+    metrics = {"losses": losses, "mean": float(np.mean(losses)), "std": float(np.std(losses))}
     yaml.dump(metrics, open(metrics_path, "w"))
-    transforms = data_loading.get_transforms(img_size)
-    yaml.dump(transforms.to_dict(), open(transforms_path, "w"))
+    print(metrics)
 
 
 if __name__ == "__main__":
