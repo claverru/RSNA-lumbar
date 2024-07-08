@@ -6,7 +6,7 @@ model:
   class_path: src.image.model.LightningModule
   init_args:
     arch: densenet201
-    emb_dim: 8
+    emb_dim: 6
     dropout: 0.3
     optimizer:
       class_path: torch.optim.Adam

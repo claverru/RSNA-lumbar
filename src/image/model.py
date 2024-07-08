@@ -52,8 +52,9 @@ class LightningModule(model.LightningModule):
     def __init__(self, arch: str = "resnet34", emb_dim: int = 32, dropout: float = 0.2, **kwargs):
         super().__init__(**kwargs)
         self.loss_f = torch.nn.CrossEntropyLoss(weight=torch.tensor([1., 2., 4., 0.2]))
-        self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=1).eval()
-        n_feats = self.backbone.num_features
+        backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=1).eval()
+        n_feats = backbone.num_features
+        self.backbone = torch.nn.Sequential(torch.nn.InstanceNorm2d(1), backbone)
         self.head = HierarchyHead(n_feats, emb_dim, dropout)
 
     def forward_train(self, x):
