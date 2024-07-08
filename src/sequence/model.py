@@ -4,7 +4,7 @@ import torch
 
 from src.image.model import HierarchyHead
 from src import constants, model, losses
-from src.sequence.constants import INPUT_SIZE, D
+from src.sequence.constants import INPUT_SIZE, P
 
 
 def get_att(emb_dim, n_heads, n_layers, dropout):
@@ -31,21 +31,30 @@ def get_head(in_features, dropout):
 
 
 class LightningModule(model.LightningModule):
-    def __init__(self, emb_dim, n_heads, n_layers, att_dropout, linear_dropout, **kwargs):
+    def __init__(
+        self,
+        emb_dim: int,
+        n_heads: int,
+        n_layers: int,
+        att_dropout: float,
+        db_emb_dim: int,
+        linear_dropout: float,
+        **kwargs
+    ):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss()
         self.val_loss = losses.LumbarLoss()
 
         self.proj = get_proj(emb_dim)
         self.seq = get_att(emb_dim, n_heads, n_layers, att_dropout)
-        self.emb = torch.nn.Embedding(4, D, padding_idx=3)
+        self.emb = torch.nn.Embedding(4, P, padding_idx=3)
 
-        self.head = HierarchyHead(emb_dim, 4, 0, with_unseen=False)
+        self.head = HierarchyHead(emb_dim, db_emb_dim, 0, with_unseen=False)
 
     def forward(self, x: torch.Tensor, desc: torch.Tensor) -> Dict[str, torch.Tensor]:
         padding_mask = desc == 3
 
-        desc_emb = self.emb(desc) # B, L, 8
+        desc_emb = self.emb(desc) # B, L, P
 
         x = torch.concat([x, desc_emb], -1)
         x = self.proj(x)

@@ -1,4 +1,5 @@
-from typing import List, Optional, Tuple
+import ast
+from typing import List, Tuple
 
 from pathlib import Path
 import albumentations as A
@@ -12,6 +13,7 @@ import lightning as L
 
 from src import constants, utils
 from src.e2e import constants as e2e_constants
+from src.image import data_loading as image_data_loading
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -20,16 +22,21 @@ class Dataset(torch.utils.data.Dataset):
         study_ids: List[int],
         df: pd.DataFrame,
         train: pd.DataFrame,
+        img_labels: pd.DataFrame,
         img_size: int,
-        transforms: A.Compose
+        transforms: A.Compose,
+        is_train: bool = True
     ):
+        self.study_ids = study_ids
         self.df = df
         self.train = train
-        self.study_ids = study_ids
+        self.img_labels = img_labels
         self.img_size = img_size
         self.transforms = transforms
         self.df_index = set(list(df.index))
         self.df_f = len(df.columns) - 1
+        self.img_labels_index = set(img_labels.index)
+        self.is_train = is_train
 
     def __len__(self):
         return len(self.study_ids)
@@ -44,7 +51,10 @@ class Dataset(torch.utils.data.Dataset):
             chunk = self.df.loc[index]
             L = len(chunk)
             N = e2e_constants.N_PER_PLANE
-            ids = np.linspace(0, L - 1, min(N, L)).round()
+            if self.is_train:
+                ids = sorted(np.random.choice(np.arange(L), min(N, L), replace=False))
+            else:
+                ids = np.linspace(0, L - 1, min(N, L)).round()
             return chunk.iloc[ids]
 
     def get_images(self, chunk) -> torch.Tensor:
@@ -64,12 +74,22 @@ class Dataset(torch.utils.data.Dataset):
             values = np.zeros((1, self.df_f), dtype=np.float32)
         return values
 
+    def get_imgs_labels(self, chunk):
+        if chunk is not None:
+            ids = chunk["image_path"].apply(get_ids_from_img_path).tolist()
+            ids = [i for i in ids if i in self.img_labels_index]
+            img_labels_chunk = self.img_labels.loc[ids]
+            return img_labels_chunk.values
+        else:
+            return np.ones((1, 25), dtype=np.int32) * -1
+
     def __getitem__(self, index):
         study_id = self.study_ids[index]
         labels = self.get_labels(study_id)
         X = []
         metadatas = []
         desc = []
+        img_labels = []
         for i, description in enumerate(constants.DESCRIPTIONS):
             chunk = self.get_chunk(study_id, description)
             x = self.get_images(chunk)
@@ -77,12 +97,21 @@ class Dataset(torch.utils.data.Dataset):
             metadata = self.get_metadata(chunk)
             metadatas.append(torch.tensor(metadata))
             desc += [i] * len(x)
+            img_label = self.get_imgs_labels(chunk)
+            img_labels.append(torch.tensor(img_label))
 
         desc = torch.tensor(desc)
         X = torch.concat(X, 0)
         metadatas = torch.concat(metadatas)
+        img_labels = torch.concat(img_labels)
+        return X, metadatas, desc, img_labels, labels
 
-        return X, metadatas, desc, labels
+
+def get_ids_from_img_path(img_path):
+    instance_number = int(img_path.stem)
+    series_id = int(img_path.parent.stem)
+    study_id = int(img_path.parent.parent.stem)
+    return study_id, series_id, instance_number
 
 
 def get_transforms(img_size):
@@ -113,12 +142,20 @@ def get_df(
 
 
 def collate_fn(data):
-    X, meta, desc, labels = zip(*data)
+    X, meta, desc, img_labels, labels = zip(*data)
     X = utils.pad_sequences(X, padding_value=0)
     desc = utils.pad_sequences(desc, 3)
     meta = utils.pad_sequences(meta, 0)
+    img_labels = utils.pad_sequences(img_labels, -1)
     labels = utils.cat_dict_tensor(labels, torch.stack)
-    return X, meta, desc, labels
+    return X, meta, desc, img_labels, labels
+
+
+def load_img_labels_df(df):
+    img_labels = pd.read_csv("data/img_labels.csv", index_col=0, converters={0: ast.literal_eval})
+    img_labels[img_labels == -1] = 3
+    new_index = df["image_path"].apply(get_ids_from_img_path).values
+    return img_labels.reindex(new_index, fill_value=-1)
 
 
 class DataModule(L.LightningDataModule):
@@ -143,6 +180,7 @@ class DataModule(L.LightningDataModule):
         self.img_dir = Path(img_dir)
         self.df = get_df(Path(meta_path), Path(desc_path), self.img_dir)
         self.train = utils.load_train(train_path).set_index("study_id").sort_index()
+        self.img_labels = load_img_labels_df(self.df)
 
     def split(self) -> Tuple[List[int], List[int]]:
         strats = self.train["condition_level"] + "_" + self.train["severity"]
@@ -160,15 +198,19 @@ class DataModule(L.LightningDataModule):
                 train_study_ids,
                 self.df,
                 self.train,
+                self.img_labels,
                 self.img_size,
-                get_transforms(self.img_size)
+                get_transforms(self.img_size),
+                is_train=True
             )
             self.val_ds = Dataset(
                 val_study_ids,
                 self.df,
                 self.train,
+                self.img_labels,
                 self.img_size,
-                get_transforms(self.img_size)
+                get_transforms(self.img_size),
+                is_train=False
             )
 
         if stage == "test":
@@ -204,9 +246,10 @@ if __name__ == "__main__":
     config = yaml.load(open("configs/e2e.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for X, meta, desc, y in dm.train_dataloader():
+    for X, meta, desc, img_y, y in dm.train_dataloader():
         print(X.shape, X.dtype)
         print(meta.shape, meta.dtype)
         print(desc.shape, desc.dtype)
+        print(img_y.shape, img_y.dtype)
         print({k: (v.shape, v.dtype) for k, v in y.items()})
         input()

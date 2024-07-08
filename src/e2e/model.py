@@ -2,12 +2,9 @@ from typing import Dict
 
 import timm
 import torch
-import lightning as L
 
 from src import constants, losses, model
-
-M = 103
-D = 8
+from src.sequence.constants import *
 
 
 def get_att(emb_dim, n_heads, n_layers, dropout):
@@ -44,53 +41,77 @@ class LightningModule(model.LightningModule):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss()
         self.val_loss = losses.LumbarLoss()
+        self.img_loss = torch.nn.CrossEntropyLoss(weight=torch.tensor([1., 2., 4., 0.2]), ignore_index=-1)
         self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained).eval()
+
         self.F = self.backbone.num_features
+        self.D = emb_dim
+        self.L = len(constants.LEVELS)
+        self.C = len(constants.CONDITIONS_COMPLETE)
+        self.S = len(constants.SEVERITY2LABEL) + 1
 
-        self.desc = torch.nn.Embedding(4, 8, padding_idx=3)
+        self.img_proj = get_proj(self.F, self.C * self.L * self.D, linear_dropout)
+        self.desc = torch.nn.Embedding(4, P, padding_idx=3)
+        self.seq_proj = get_proj(self.C * self.L * self.D + M + P, self.C * self.L * self.D, linear_dropout)
+        self.seq = get_att(self.C * self.L * self.D, n_heads, n_layers, att_dropout)
 
-        self.proj = get_proj(self.F + M + D, emb_dim, linear_dropout)
-
-        self.seq = get_att(emb_dim, n_heads, n_layers, att_dropout)
-
-        self.heads = torch.nn.ModuleDict(
-            {cl: get_head(emb_dim, linear_dropout) for cl in constants.CONDITION_LEVEL}
+        self.condition_severity = torch.nn.Parameter(
+            torch.randn(self.C, self.S, self.D), requires_grad=True
         )
 
     def forward(self, x: torch.Tensor, meta: torch.Tensor, desc: torch.Tensor) -> Dict[str, torch.Tensor]:
-        B, L, C, H, W = x.shape
+        B, T, _, _, _ = x.shape
         padding_mask = desc == 3
         true_mask = padding_mask.logical_not()
+
         filter_x = x[true_mask]
         filter_feats: torch.Tensor = self.backbone(filter_x)
-        feats = torch.zeros((B, L, self.F), device=filter_feats.device, dtype=filter_feats.dtype)
-        feats[true_mask] = filter_feats
+        feats = torch.zeros((B, T, self.F), device=filter_feats.device, dtype=filter_feats.dtype)
+        feats[true_mask] = filter_feats # (B, T, F)
+
+        feats = self.img_proj(feats) # (B, T, C * L * D)
+        leveled_feats = feats.reshape(B, T, self.C, self.L, self.D) # (B, T, C, L,  D)
+        out1 = torch.einsum("BTCLD,CSD->BSTCL", leveled_feats, self.condition_severity)
+
         desc_emb = self.desc(desc)
         feats = torch.concat([feats, meta, desc_emb], -1)
-        seq = self.proj(feats)
+        seq = self.seq_proj(feats)
         seq = self.seq(seq, src_key_padding_mask=padding_mask)
         seq[padding_mask] = -100
         seq = seq.amax(1)
-        outs = {k: head(seq) for k, head in self.heads.items()}
-        return outs
+
+        leveled_seq = seq.reshape(B, self.C, self.L, self.D)
+        out2 = torch.einsum("BCLD,CSD->BCLS", leveled_seq, self.condition_severity[:, :-1])
+        outs = {}
+        for i, c in enumerate(constants.CONDITIONS_COMPLETE):
+            for j, l in enumerate(constants.LEVELS):
+                k = f"{c}_{l}"
+                outs[k] = out2[:, i, j]
+        return outs, out1.reshape(B, self.S, T, self.C * self.L)
 
     def training_step(self, batch, batch_idx):
-        x, meta, desc, y_true_dict = batch
-        y_pred_dict = self.forward(x, meta, desc)
+        x, meta, desc, img_y, y_true_dict = batch
+        y_pred_dict, img_pred = self.forward(x, meta, desc)
         batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
         losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y_true_dict, y_pred_dict)
 
         for k, v in losses.items():
             self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False, batch_size=batch_size)
 
-        loss = sum(losses.values()) / len(losses)
+        seq_loss = sum(losses.values()) / len(losses)
+        self.log("train_seq_loss", seq_loss, on_epoch=True, prog_bar=True, on_step=True, batch_size=batch_size)
+
+        img_loss = self.img_loss(img_pred, img_y)
+        self.log("train_img_loss", img_loss, on_epoch=True, prog_bar=True, on_step=True, batch_size=batch_size)
+
+        loss = seq_loss + img_loss
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True, batch_size=batch_size)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, meta, desc, y_true_dict = batch
-        y_pred_dict = self.forward(x, meta, desc)
+        x, meta, desc, _, y_true_dict = batch
+        y_pred_dict, _ = self.forward(x, meta, desc)
         self.val_loss.update(y_true_dict, y_pred_dict)
 
     def on_validation_epoch_end(self, *args, **kwargs):

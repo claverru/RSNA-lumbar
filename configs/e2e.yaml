@@ -6,8 +6,8 @@ seed_everything: 128
 model:
   class_path: src.e2e.model.LightningModule
   init_args:
-    arch: tf_efficientnet_b2.ns_jft_in1k
-    emb_dim: 32
+    arch: densenet201
+    emb_dim: 8
     n_heads: 2
     n_layers: 2
     att_dropout: 0.1
@@ -21,8 +21,8 @@ model:
       init_args:
         base_lr: 1e-7
         max_lr: 1e-4
-        step_size_up: 591
-        step_size_down: 591
+        step_size_up: 150
+        step_size_down: 200
         mode: exp_range
         gamma: 0.999
     interval: step
@@ -31,11 +31,12 @@ data:
   class_path: src.e2e.data_loading.DataModule
   init_args:
     img_dir: data/train_images_natural_v2
-    batch_size: 8
+    batch_size: 4
     img_size: 260
     meta_path: data/metadata_v4_norm.csv
 
 trainer:
+  accumulate_grad_batches: 8
   logger:
     class_path: CSVLogger
     init_args:
@@ -67,7 +68,6 @@ trainer:
   log_every_n_steps: 1
   accelerator: gpu
   precision: 16-mixed
-  accumulate_grad_batches: 1
   max_epochs: 10000
 
 ckpt_path: null

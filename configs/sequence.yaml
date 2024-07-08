@@ -17,6 +17,7 @@ model:
     n_heads: 8
     n_layers: 4
     att_dropout: 0.2
+    db_emb_dim: 4
     linear_dropout: 0.2
     optimizer:
       class_path: torch.optim.Adam
