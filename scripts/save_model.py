@@ -52,14 +52,14 @@ def save(checkpoints_dir: Path, out_dir: Path):
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    x = torch.randn(2, 3, constants.INPUT_SIZE - constants.D)
+    x = torch.randn(2, 3, constants.INPUT_SIZE - constants.P)
     desc = torch.randint(0, 4, (2, 3))
     example_input = (x, desc)
     ts = ens.to_torchscript(model_path, "trace", example_inputs=example_input, strict=False)
 
     print({k: v.shape for k, v in ts(*example_input).items()})
 
-    x = torch.randn(4, 5, constants.INPUT_SIZE - constants.D)
+    x = torch.randn(4, 5, constants.INPUT_SIZE - constants.P)
     desc = torch.randint(0, 4, (4, 5))
     example_input = (x, desc)
     print({k: v.shape for k, v in ts(*example_input).items()})

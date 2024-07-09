@@ -7,7 +7,7 @@ data:
   init_args:
     batch_size: 32
     aug: 0.1
-    feats_path: data/feats_densenet201_5_hierar_unseen.parquet
+    feats_path: data/feats_densenet201_multi_5.parquet
     meta_path: data/metadata_v4_norm.csv
 
 model:

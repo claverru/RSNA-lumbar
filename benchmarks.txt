@@ -1,3 +1,6 @@
+image (380, hierarchical condition 6, unseen 0.2, instancenorm, aug, coors, plane): 0.2993
+-> Worse?, same LB, more stable across 10 folds
+
 image (380, hierarchical condition 6, unseen 0.2, instancenorm): 0.3016
 
 image (380, hierarchical condition 8, unseen 0.2): 0.3033

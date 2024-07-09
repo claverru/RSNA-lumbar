@@ -32,32 +32,34 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.index2id)
 
-    @staticmethod
-    def hflip(img: torch.Tensor, d: Dict[str, str]) -> Tuple[torch.Tensor, Dict[str, str]]:
-        img = torchvision.transforms.functional.hflip(img)
-        for k in list(d):
-            if "left" in k:
-                d[k.replace("left", "right")] = d.pop(k)
-            if "right" in k:
-                d[k.replace("right", "left")] = d.pop(k)
-        return img, d
+    def get_labels(self, chunk: pd.DataFrame):
+        d = chunk.set_index("condition_level")["severity"].to_dict()
+        return {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), 3)) for k in constants.CONDITION_LEVEL}
+
+    def get_coors(self, chunk: pd.DataFrame, shape: Tuple[int, int]):
+        d = chunk.set_index("condition_level")[["x", "y"]].to_dict("index")
+        result = {}
+        for k in constants.CONDITION_LEVEL:
+            if k in d:
+                result[k] = torch.tensor([d[k]["x"] / shape[1], d[k]["y"] / shape[0]])
+            else:
+                result[k] = torch.tensor([-1, -1], dtype=torch.float32)
+        return result
+
+    def get_plane(self, chunk: pd.DataFrame):
+        desc = chunk["series_description"].iloc[0]
+        return torch.tensor(constants.DESCRIPTIONS.index(desc))
 
     def __getitem__(self, index):
         idx = self.index2id[index]
         chunk: pd.DataFrame = self.df.loc[idx]
         img_path = utils.get_image_path(idx[0], idx[1], idx[2], self.img_dir, suffix=".png")
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)[..., None]
-
-        if self.transforms is not None:
-            img = self.transforms(image=img)["image"]
-
-        d = chunk.set_index("condition_level")["severity"].to_dict()
-
-        # if self.train and random.random() < 0.5:
-        #     img, d = self.hflip(img, d)
-
-        y_true = {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), 3)) for k in constants.CONDITION_LEVEL}
-        return img, y_true
+        x = self.transforms(image=img)["image"]
+        labels = self.get_labels(chunk)
+        coors = self.get_coors(chunk, img.shape)
+        plane = self.get_plane(chunk)
+        return x, labels, coors, plane
 
 
 class PredictDataset(torch.utils.data.Dataset):
@@ -92,18 +94,34 @@ def get_transforms(img_size):
     )
 
 
-def load_df(coor_path: Path = constants.COOR_PATH, train_path: Path = constants.TRAIN_PATH) -> pd.DataFrame:
+def get_train_transforms(img_size):
+    return A.Compose([
+        A.Resize(img_size, img_size),
+        A.RandomBrightnessContrast(p=0.1),
+        A.MotionBlur(p=0.1),
+        A.GaussNoise(p=0.1),
+        A.Normalize((0.485, ), (0.229, )),
+        ToTensorV2()
+    ])
+
+
+def load_df(
+    coor_path: Path = constants.COOR_PATH,
+    train_path: Path = constants.TRAIN_PATH,
+    desc_path: Path = constants.DESC_PATH
+) -> pd.DataFrame:
     coor = pd.read_csv(coor_path)
-    coor = coor.drop(columns=["x", "y"])
     norm_cond = coor.pop("condition").str.lower().str.replace(" ", "_")
     norm_level = coor.pop("level").str.lower().str.replace("/", "_")
     coor["condition_level"] = norm_cond + "_" + norm_level
 
     train = utils.load_train(train_path)
+    df = train.merge(coor, how="inner", on=["study_id", "condition_level"])
 
-    result = train.merge(coor, how="inner", on=["study_id", "condition_level"])
+    desc = pd.read_csv(desc_path)
+    df = df.merge(desc, on=["study_id", "series_id"])
 
-    return result.set_index(["study_id", "series_id", "instance_number"]).sort_index()
+    return df.set_index(["study_id", "series_id", "instance_number"]).sort_index()
 
 
 class DataModule(L.LightningDataModule):
@@ -111,6 +129,7 @@ class DataModule(L.LightningDataModule):
             self,
             coor_path: Path = constants.COOR_PATH,
             train_path: Path = constants.TRAIN_PATH,
+            desc_path: Path = constants.DESC_PATH,
             img_dir: Path = constants.TRAIN_IMG_DIR,
             n_splits: int = 5,
             this_split: int = 0,
@@ -125,7 +144,7 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_size = img_size
-        self.df = load_df(coor_path, train_path)
+        self.df = load_df(coor_path, train_path, desc_path)
 
     def prepare_data(self):
         pass
@@ -142,7 +161,7 @@ class DataModule(L.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             train_df, val_df = self.split()
-            self.train_ds = Dataset(train_df, self.img_dir, train=True, transforms=get_transforms(self.img_size))
+            self.train_ds = Dataset(train_df, self.img_dir, train=True, transforms=get_train_transforms(self.img_size))
             self.val_ds = Dataset(val_df, self.img_dir, train=False, transforms=get_transforms(self.img_size))
 
         if stage == "test":
@@ -186,7 +205,9 @@ if __name__ == "__main__":
     config = yaml.load(open("configs/image.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for x, y in dm.val_dataloader():
-        print(x.shape)
-        print({k: v.shape for k, v in y.items()})
+    for x, y, coors, plane in dm.val_dataloader():
+        print(x.shape, x.dtype)
+        print(plane.shape, plane.dtype)
+        print({k: (v.shape, v.dtype) for k, v in y.items()})
+        print({k: (v.shape, v.dtype) for k, v in coors.items()})
         break
