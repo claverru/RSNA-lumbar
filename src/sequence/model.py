@@ -4,8 +4,7 @@ import torch
 
 from src.image.model import HierarchyHead
 from src import constants, model, losses
-from src.sequence.constants import INPUT_SIZE, P
-
+from src.sequence.constants import *
 
 def get_att(emb_dim, n_heads, n_layers, dropout):
     layer = torch.nn.TransformerEncoderLayer(
@@ -49,7 +48,7 @@ class LightningModule(model.LightningModule):
         self.seq = get_att(emb_dim, n_heads, n_layers, att_dropout)
         self.emb = torch.nn.Embedding(4, P, padding_idx=3)
 
-        self.head = HierarchyHead(emb_dim, db_emb_dim, 0, with_unseen=False)
+        self.head = HierarchyHead(emb_dim, db_emb_dim, 0, with_unseen=False, levels_and_conditions=True)
 
     def forward(self, x: torch.Tensor, desc: torch.Tensor) -> Dict[str, torch.Tensor]:
         padding_mask = desc == 3
@@ -63,7 +62,12 @@ class LightningModule(model.LightningModule):
         x[padding_mask] = -100
         x = x.amax(1)
 
-        outs = self.head.forward_train(x)
+        _, out = self.head(x)
+        outs = {}
+        for i, level in enumerate(constants.LEVELS):
+            for j, condition in enumerate(constants.CONDITIONS_COMPLETE):
+                k = f"{condition}_{level}"
+                outs[k] = out[:, i, j]
         return outs
 
     def training_step(self, batch, batch_idx):

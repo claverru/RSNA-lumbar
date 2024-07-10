@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import torch
 from albumentations.pytorch import ToTensorV2
-import torchvision
 
 from src import constants, utils
 
@@ -37,13 +36,13 @@ class Dataset(torch.utils.data.Dataset):
         return {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), 3)) for k in constants.CONDITION_LEVEL}
 
     def get_coors(self, chunk: pd.DataFrame, shape: Tuple[int, int]):
-        d = chunk.set_index("condition_level")[["x", "y"]].to_dict("index")
+        d = chunk.set_index("condition_level")[["x", "y", "z"]].to_dict("index")
         result = {}
         for k in constants.CONDITION_LEVEL:
             if k in d:
-                result[k] = torch.tensor([d[k]["x"] / shape[1], d[k]["y"] / shape[0]])
+                result[k] = torch.tensor([d[k]["x"] / shape[1], d[k]["y"] / shape[0], d[k]["z"]])
             else:
-                result[k] = torch.tensor([-1, -1], dtype=torch.float32)
+                result[k] = torch.tensor([-1, -1, -1], dtype=torch.float32)
         return result
 
     def get_plane(self, chunk: pd.DataFrame):
@@ -120,6 +119,11 @@ def load_df(
 
     desc = pd.read_csv(desc_path)
     df = df.merge(desc, on=["study_id", "series_id"])
+
+    imgs_df = utils.get_images_df()
+    max_instance = imgs_df.groupby(["study_id", "series_id"])["instance_number"].max().rename("max_instance")
+    df = df.merge(max_instance, how="left", on=["study_id", "series_id"])
+    df["z"] = df["instance_number"] / df.pop("max_instance")
 
     return df.set_index(["study_id", "series_id", "instance_number"]).sort_index()
 
