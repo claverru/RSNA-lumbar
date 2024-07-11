@@ -6,7 +6,7 @@ model:
   class_path: src.image.model.LightningModule
   init_args:
     arch: densenet201
-    emb_dim: 32
+    emb_dim: 64
     dropout: 0.3
     optimizer:
       class_path: torch.optim.Adam
@@ -16,11 +16,11 @@ model:
       class_path: torch.optim.lr_scheduler.OneCycleLR
       init_args:
         max_lr: 1e-4
-        epochs: 10
+        epochs: 15
         steps_per_epoch: 614
         pct_start: 0.2
         div_factor: 1000
-        final_div_factor: 50
+        final_div_factor: 500
     interval: step
 
 data:

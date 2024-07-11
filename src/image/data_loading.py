@@ -1,6 +1,5 @@
 from pathlib import Path
-import random
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 import cv2
 from sklearn.model_selection import StratifiedGroupKFold
@@ -31,34 +30,61 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.index2id)
 
-    def get_labels(self, chunk: pd.DataFrame):
-        d = chunk.set_index("condition_level")["severity"].to_dict()
+    def labels2target(self, labels):
+        d = dict(labels)
         return {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), 3)) for k in constants.CONDITION_LEVEL}
 
-    def get_coors(self, chunk: pd.DataFrame, shape: Tuple[int, int]):
-        d = chunk.set_index("condition_level")[["x", "y", "z"]].to_dict("index")
+    def keypoints2xy(self, keypoints, labels, shape):
+        d = {l: {"x": x, "y": y} for (l, _), (x, y) in zip(labels, keypoints)}
         result = {}
+
         for k in constants.CONDITION_LEVEL:
             if k in d:
-                result[k] = torch.tensor([d[k]["x"] / shape[1], d[k]["y"] / shape[0], d[k]["z"]])
+                result[k] = torch.tensor([d[k]["x"] / shape[2], d[k]["y"] / shape[1]])
             else:
-                result[k] = torch.tensor([-1, -1, -1], dtype=torch.float32)
+                result[k] = torch.tensor([-1, -1], dtype=torch.float32)
         return result
+
+    def get_labels(self, chunk: pd.DataFrame):
+        return chunk[["condition_level", "severity"]].values
+
+    def get_keypoints(self, chunk: pd.DataFrame):
+        return chunk[["x", "y"]].values
+
+    def get_z(self, chunk: pd.DataFrame):
+        z = chunk["z"].iloc[0]
+        return torch.tensor([z], dtype=torch.float32)
 
     def get_plane(self, chunk: pd.DataFrame):
         desc = chunk["series_description"].iloc[0]
-        return torch.tensor(constants.DESCRIPTIONS.index(desc))
+        desc_id = constants.DESCRIPTIONS.index(desc)
+        return torch.tensor(desc_id)
 
     def __getitem__(self, index):
         idx = self.index2id[index]
         chunk: pd.DataFrame = self.df.loc[idx]
         img_path = utils.get_image_path(idx[0], idx[1], idx[2], self.img_dir, suffix=".png")
-        img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)[..., None]
-        x = self.transforms(image=img)["image"]
-        labels = self.get_labels(chunk)
-        coors = self.get_coors(chunk, img.shape)
+        img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+        # img = add_coor_embeddings(img)
         plane = self.get_plane(chunk)
-        return x, labels, coors, plane
+        z = self.get_z(chunk)
+
+        labels = self.get_labels(chunk)
+        keypoints = self.get_keypoints(chunk)
+        transformed = self.transforms(image=img, keypoints=keypoints, labels=labels)
+        x = transformed["image"]
+        labels = transformed["labels"]
+        keypoints = transformed["keypoints"]
+
+        target = self.labels2target(labels)
+        xy = self.keypoints2xy(keypoints, labels, x.shape)
+        return x, target, xy, z, plane
+
+
+def add_coor_embeddings(img):
+    x = np.linspace(0, 255, img.shape[1], dtype=np.uint8)[None, :].repeat(img.shape[0], 0)
+    y = np.linspace(0, 225, img.shape[0], dtype=np.uint8)[:, None].repeat(img.shape[1], 1)
+    return np.stack([img, x, y], -1)
 
 
 class PredictDataset(torch.utils.data.Dataset):
@@ -89,19 +115,47 @@ def get_transforms(img_size):
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
             A.Normalize((0.485, ), (0.229, )),
             ToTensorV2(),
-        ]
+        ],
+        keypoint_params=A.KeypointParams(
+            format="xy",
+            label_fields=["labels"], remove_invisible=True
+        )
     )
 
 
 def get_train_transforms(img_size):
-    return A.Compose([
-        A.Resize(img_size, img_size),
-        A.RandomBrightnessContrast(p=0.1),
-        A.MotionBlur(p=0.1),
-        A.GaussNoise(p=0.1),
-        A.Normalize((0.485, ), (0.229, )),
-        ToTensorV2()
-    ])
+    return A.Compose(
+        [
+            A.ShiftScaleRotate(
+                shift_limit=(-0.3, 0.3),
+                rotate_limit=(-10, 10),
+                interpolation=cv2.INTER_CUBIC,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=0,
+                p=0.5
+            ),
+            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
+            A.RandomBrightnessContrast(p=0.1),
+            A.MotionBlur(p=0.1),
+            A.GaussNoise(p=0.1),
+            A.Normalize((0.485, ), (0.229, )),
+            ToTensorV2()
+        ],
+        keypoint_params=A.KeypointParams(
+            format="xy",
+            label_fields=["labels"], remove_invisible=True
+        )
+    )
+
+
+def get_predict_transforms(img_size):
+    return A.Compose(
+        [
+            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
+            A.Normalize((0.485, ), (0.229, )),
+            ToTensorV2(),
+        ]
+    )
 
 
 def load_df(
@@ -175,7 +229,7 @@ class DataModule(L.LightningDataModule):
             train_df, _ = self.split()
             imgs_df = utils.get_images_df(self.img_dir)
             imgs_df = imgs_df[~imgs_df.set_index(train_df.index.names).index.isin(train_df.index)].reset_index(drop=True)
-            self.predict_ds = PredictDataset(imgs_df, self.img_dir, transforms=get_transforms(self.img_size))
+            self.predict_ds = PredictDataset(imgs_df, self.img_dir, transforms=get_predict_transforms(self.img_size))
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -209,9 +263,10 @@ if __name__ == "__main__":
     config = yaml.load(open("configs/image.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for x, y, coors, plane in dm.val_dataloader():
+    for x, y, xy, z, plane in dm.train_dataloader():
         print(x.shape, x.dtype)
+        print(z.shape, z.dtype)
         print(plane.shape, plane.dtype)
         print({k: (v.shape, v.dtype) for k, v in y.items()})
-        print({k: (v.shape, v.dtype) for k, v in coors.items()})
+        print({k: (v.shape, v.dtype) for k, v in xy.items()})
         break
