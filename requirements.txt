@@ -6,3 +6,4 @@ lightning[pytorch-extra]==2.2.5
 timm==1.0.3
 tyro==0.8.4
 pyarrow==16.1.0
+segmentation-models-pytorch==0.3.3
