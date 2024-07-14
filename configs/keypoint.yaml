@@ -1,0 +1,62 @@
+monitor: val_loss
+monitor_mode: min
+seed_everything: 128
+
+model:
+  class_path: src.keypoint.model.LightningModule
+  init_args:
+    arch: densenet201
+    img_size: 448
+    optimizer:
+      class_path: torch.optim.Adam
+      init_args:
+        lr: 1.0
+    lr_scheduler:
+      class_path: torch.optim.lr_scheduler.OneCycleLR
+      init_args:
+        max_lr: 1e-4
+        epochs: 50
+        steps_per_epoch: 192
+        pct_start: 0.1
+        div_factor: 1000
+        final_div_factor: 500
+    interval: step
+
+data:
+  class_path: src.keypoint.data_loading.DataModule
+  init_args:
+    img_size: 448
+    batch_size: 32
+    img_dir: data/train_images_clip
+
+trainer:
+  accumulate_grad_batches: 1
+  logger:
+    class_path: src.callbacks.CustomLogger
+    init_args:
+      save_dir: lightning_logs/
+      name: ""
+      train_c: train_loss
+      val_c: val_loss
+  enable_checkpointing: true
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: ${monitor}
+        patience: 4
+        mode: ${monitor_mode}
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: ${monitor}
+        mode: ${monitor_mode}
+        filename: '{epoch}_{${monitor}:.4f}'
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+    - class_path: src.image.writer.Writer
+  accelerator: gpu
+  precision: 16-mixed
+  benchmark: True
+  max_epochs: 10000
+
+ckpt_path: null
