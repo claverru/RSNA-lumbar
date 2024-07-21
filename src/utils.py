@@ -1,4 +1,6 @@
+import colorsys
 from pathlib import Path
+import random
 from typing import Dict, List, Optional
 from functools import partial
 
@@ -163,3 +165,12 @@ def pad_sequences(sequences, padding_value=-100):
 
 def stack(x):
     return torch.stack(x, dim=0)
+
+
+def generate_random_colors(n: int, bright: bool = True):
+    brightness = 1.0 if bright else 0.7
+    hsv = [(i / n, 1, brightness) for i in range(n)]
+    colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
+    colors = [tuple([int(v * 255) for v in c]) for c in colors]
+    random.shuffle(colors)
+    return colors
