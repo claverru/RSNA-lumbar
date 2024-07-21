@@ -28,10 +28,12 @@ def load_dcm_img(path: Path, add_channels: bool = True, size: Optional[int] = No
     slope = int(getattr(dicom, "RescaleSlope", 1))
 
     img = img * slope + intercept
-    img_min = window_center - window_width // 2
-    img_max = window_center + window_width // 2
-    img[img < img_min] = img_min
-    img[img > img_max] = img_max
+    # img_min = window_center - window_width // 2
+    # img_max = window_center + window_width // 2
+    # img[img < img_min] = img_min
+    # img[img > img_max] = img_max
+
+    img = img.clip(np.percentile(img, 1), np.percentile(img, 99))
 
     img = img - np.min(img)
     img = img / np.max(img)
