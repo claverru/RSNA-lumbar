@@ -30,3 +30,11 @@ class LightningModule(L.LightningModule):
                 "frequency": self.frequency
             },
         }
+
+
+def get_transformer(emb_dim, n_heads, n_layers, dropout):
+    layer = torch.nn.TransformerEncoderLayer(
+        emb_dim, n_heads, dropout=dropout, dim_feedforward=emb_dim * 2, batch_first=True, norm_first=True
+    )
+    encoder = torch.nn.TransformerEncoder(layer, n_layers, norm=torch.nn.LayerNorm(emb_dim), enable_nested_tensor=False)
+    return encoder

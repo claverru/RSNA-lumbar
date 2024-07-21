@@ -103,7 +103,6 @@ class PredictDataset(torch.utils.data.Dataset):
         return x
 
 
-
 def get_transforms(img_size):
     return A.Compose(
         [
@@ -147,6 +146,7 @@ def get_predict_transforms(img_size):
             ToTensorV2(),
         ]
     )
+
 
 def load_this_df(
     coor_path: Path = constants.COOR_PATH,
