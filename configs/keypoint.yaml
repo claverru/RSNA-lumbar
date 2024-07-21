@@ -15,9 +15,9 @@ model:
       class_path: torch.optim.lr_scheduler.OneCycleLR
       init_args:
         max_lr: 1e-4
-        epochs: 30
+        epochs: 60
         steps_per_epoch: 192
-        pct_start: 0.1
+        pct_start: 0.05
         div_factor: 1000
         final_div_factor: 500
     interval: step
