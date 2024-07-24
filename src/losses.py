@@ -28,7 +28,7 @@ class LumbarLoss(Metric):
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
     ) -> float:
         severe_spinal_true = torch.stack(
-            [y_true_dict[k] for k in constants.CONDITION_LEVEL if "spinal" in k], -1
+            [y_true_dict[k] for k in y_true_dict if "spinal" in k], -1
         ).max(-1)[0]
         is_empty_spinal_batch = (severe_spinal_true == -1).all()
 
@@ -36,7 +36,7 @@ class LumbarLoss(Metric):
             return -1
 
         severe_spinal_preds = torch.stack(
-            [torch.softmax(y_pred_dict[k], -1)[:, -1] for k in constants.CONDITION_LEVEL if "spinal" in k],
+            [torch.softmax(y_pred_dict[k], -1)[:, -1] for k in y_true_dict if "spinal" in k],
             -1
         ).max(-1)[0]
 

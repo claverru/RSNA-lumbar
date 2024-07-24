@@ -23,12 +23,14 @@ class CustomLogger(CSVLogger):
 
         train = df[self.train_c].dropna().reset_index(drop=True)
         val = df[self.val_c].dropna().reset_index(drop=True)
-        lr = df[self.lr_c].dropna().reset_index(drop=True)
+        lr = df[self.lr_c].dropna().reset_index(drop=True).iloc[:len(val)]
         fig, axes = plt.subplots(nrows=2)
-        axes[0].plot(train)
-        axes[0].plot(val)
+        axes[0].plot(train, label=self.train_c)
+        axes[0].plot(val, label=self.val_c)
         axes[0].hlines(val.min(), 0, len(val) -1, color="orange", linestyle=":")
-        axes[1].plot(lr, color="red", linestyle="--")
+        axes[0].legend(loc="upper right")
+        axes[1].plot(lr, color="red", linestyle="--", label=self.lr_c)
+        axes[1].legend(loc="upper right")
         plt.savefig(metrics_path.with_suffix(".png"))
         plt.clf()
         plt.close(fig)

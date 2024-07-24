@@ -23,7 +23,7 @@ def f(ids, in_dir, out_dir, img_size):
 
 
 def main(out_dir: Path, img_size: Optional[int] = None, in_dir: Path = constants.TRAIN_IMG_DIR):
-    df = utils.get_images_df()
+    df = utils.get_images_df(in_dir)
 
     partial_f = partial(f, in_dir=in_dir, out_dir=out_dir, img_size=img_size)
 
