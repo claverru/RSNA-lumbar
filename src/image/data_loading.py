@@ -1,8 +1,8 @@
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 import albumentations as A
 import lightning as L
 import numpy as np
@@ -30,61 +30,19 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.index2id)
 
-    def labels2target(self, labels):
-        d = dict(labels)
-        return {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), 3)) for k in constants.CONDITION_LEVEL}
-
-    def keypoints2xy(self, keypoints, labels, shape):
-        d = {l: {"x": x, "y": y} for (l, _), (x, y) in zip(labels, keypoints)}
-        result = {}
-
-        for k in constants.CONDITION_LEVEL:
-            if k in d:
-                result[k] = torch.tensor([d[k]["x"] / shape[2], d[k]["y"] / shape[1]])
-            else:
-                result[k] = torch.tensor([-1, -1], dtype=torch.float32)
-        return result
-
-    def get_labels(self, chunk: pd.DataFrame):
-        return chunk[["condition_level", "severity"]].values
-
-    def get_keypoints(self, chunk: pd.DataFrame):
-        return chunk[["x", "y"]].values
-
-    def get_z(self, chunk: pd.DataFrame):
-        z = chunk["z"].iloc[0]
-        return torch.tensor([z], dtype=torch.float32)
-
-    def get_plane(self, chunk: pd.DataFrame):
-        desc = chunk["series_description"].iloc[0]
-        desc_id = constants.DESCRIPTIONS.index(desc)
-        return torch.tensor(desc_id)
+    def get_target(self, chunk: pd.DataFrame):
+        return chunk.set_index("type").map(torch.tensor).to_dict(orient="index")
 
     def __getitem__(self, index):
         idx = self.index2id[index]
+        study_id, series_id, plane, instance_number = idx
         chunk: pd.DataFrame = self.df.loc[idx]
-        img_path = utils.get_image_path(idx[0], idx[1], idx[2], self.img_dir, suffix=".png")
+        img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-        # img = add_coor_embeddings(img)
-        plane = self.get_plane(chunk)
-        z = self.get_z(chunk)
 
-        labels = self.get_labels(chunk)
-        keypoints = self.get_keypoints(chunk)
-        transformed = self.transforms(image=img, keypoints=keypoints, labels=labels)
-        x = transformed["image"]
-        labels = transformed["labels"]
-        keypoints = transformed["keypoints"]
-
-        target = self.labels2target(labels)
-        xy = self.keypoints2xy(keypoints, labels, x.shape)
-        return x, target, xy, z, plane
-
-
-def add_coor_embeddings(img):
-    x = np.linspace(0, 255, img.shape[1], dtype=np.uint8)[None, :].repeat(img.shape[0], 0)
-    y = np.linspace(0, 225, img.shape[0], dtype=np.uint8)[:, None].repeat(img.shape[1], 1)
-    return np.stack([img, x, y], -1)
+        x = self.transforms(image=img)["image"]
+        target = self.get_target(chunk)
+        return x, target
 
 
 class PredictDataset(torch.utils.data.Dataset):
@@ -115,11 +73,7 @@ def get_transforms(img_size):
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
             A.Normalize((0.485, ), (0.229, )),
             ToTensorV2(),
-        ],
-        keypoint_params=A.KeypointParams(
-            format="xy",
-            label_fields=["labels"], remove_invisible=True
-        )
+        ]
     )
 
 
@@ -127,33 +81,19 @@ def get_train_transforms(img_size):
     return A.Compose(
         [
             A.ShiftScaleRotate(
-                shift_limit=(-0.3, 0.3),
-                rotate_limit=(-10, 10),
+                shift_limit=(-0.1, 0.1),
+                rotate_limit=(-20, 20),
+                scale_limit=0.1,
                 interpolation=cv2.INTER_CUBIC,
-                border_mode=cv2.BORDER_CONSTANT,
-                value=0,
+                # border_mode=cv2.BORDER_CONSTANT,
+                # value=0,
                 p=0.5
             ),
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            A.RandomBrightnessContrast(p=0.1),
-            A.MotionBlur(p=0.1),
-            A.GaussNoise(p=0.1),
+            A.MotionBlur(p=0.2),
+            A.GaussNoise(p=0.2),
             A.Normalize((0.485, ), (0.229, )),
             ToTensorV2()
-        ],
-        keypoint_params=A.KeypointParams(
-            format="xy",
-            label_fields=["labels"], remove_invisible=True
-        )
-    )
-
-
-def get_predict_transforms(img_size):
-    return A.Compose(
-        [
-            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            A.Normalize((0.485, ), (0.229, )),
-            ToTensorV2(),
         ]
     )
 
@@ -163,23 +103,62 @@ def load_df(
     train_path: Path = constants.TRAIN_PATH,
     desc_path: Path = constants.DESC_PATH
 ) -> pd.DataFrame:
-    coor = pd.read_csv(coor_path)
-    norm_cond = coor.pop("condition").str.lower().str.replace(" ", "_")
-    norm_level = coor.pop("level").str.lower().str.replace("/", "_")
-    coor["condition_level"] = norm_cond + "_" + norm_level
-
+    coor = utils.load_coor(coor_path).drop(columns=["x", "y"])
     train = utils.load_train(train_path)
-    df = train.merge(coor, how="inner", on=["study_id", "condition_level"])
+    desc = utils.load_desc(desc_path)
+    df = coor.merge(train, how="inner", on=["study_id", "condition_level"]).drop(columns=["condition_level", "level"])
+    df = df.merge(desc, how="inner", on=["study_id", "series_id"])
 
-    desc = pd.read_csv(desc_path)
-    df = df.merge(desc, on=["study_id", "series_id"])
+    df["condition"] = df["condition"].where(
+        ~df["type"].isin(["left", "right"]), df["condition"].str.split("_", n=1, expand=True)[1]
+    )
 
-    imgs_df = utils.get_images_df()
-    max_instance = imgs_df.groupby(["study_id", "series_id"])["instance_number"].max().rename("max_instance")
-    df = df.merge(max_instance, how="left", on=["study_id", "series_id"])
-    df["z"] = df["instance_number"] / df.pop("max_instance")
+    severity = df.pop("severity").map(constants.SEVERITY2LABEL) + 1
 
-    return df.set_index(["study_id", "series_id", "instance_number"]).sort_index()
+    dummies = df.pop("condition").str.get_dummies()
+    dummy_cols = dummies.columns
+    dummies = dummies.where(dummies == 0, severity, axis=0)
+
+    df[dummy_cols] = dummies
+    df = df.groupby(["study_id", "series_id", "instance_number", "series_description", "type"], as_index=False).sum()
+    df[dummy_cols] -= 1
+    df[df == -1] = pd.NA
+    types = df["type"].unique()
+    df = df.set_index(["study_id", "series_id", "series_description", "instance_number", "type"])
+
+    new_index = [i[:-1] for i in df.index]
+    new_index = [i + (t, ) for i in set(new_index) for t in types]
+
+    df = df.reindex(new_index).reset_index()
+
+    planes = ["Sagittal T1", "Sagittal T2/STIR", "Axial T2"]
+    conds = [
+        "left_neural_foraminal_narrowing",
+        "right_neural_foraminal_narrowing",
+        "spinal_canal_stenosis",
+        "subarticular_stenosis"
+    ]
+    fill = pd.DataFrame(
+        data=[
+            [-1, -1,  3,  3],
+            [ 3,  3, -1,  3],
+            [ 3,  3,  3, -1]
+        ],
+        columns=conds,
+        index=planes
+    )
+
+    for plane in planes:
+        for cond in dummy_cols:
+            this_fill = fill.loc[plane, cond]
+            # this_fill = -1
+            df.loc[df["series_description"] == plane, cond] = df.loc[df["series_description"] == plane, cond].fillna(this_fill)
+    df[conds] = df[dummy_cols].astype(int)
+    df.loc[df["type"].isin(["right", "left"]) & ~df["series_description"].eq("Axial T2"), conds] = -1
+    df.loc[~df["type"].isin(["right", "left"]) & df["series_description"].str.contains("Axial T2"), conds] = -1
+    df = df.set_index(["study_id", "series_id", "series_description", "instance_number"])
+    df = df.sort_values("type")
+    return df.sort_index()
 
 
 class DataModule(L.LightningDataModule):
@@ -203,18 +182,25 @@ class DataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.img_size = img_size
         self.df = load_df(coor_path, train_path, desc_path)
+        self.train = utils.load_train_flatten(train_path)
 
     def prepare_data(self):
         pass
 
-    def split(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        strats = self.df["condition_level"] + "_" + self.df["severity"]
-        groups = self.df.reset_index()["study_id"]
-        skf = StratifiedGroupKFold(n_splits=self.n_splits, shuffle=True)
-        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
+    def split(self) -> Tuple[List[int], List[int]]:
+        strats = self.train.astype(str).sum(1)
+        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True)
+        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats)):
             if i == self.this_split:
                 break
-        return self.df.iloc[train_ids], self.df.iloc[val_ids]
+        train_ids, val_ids  = set(self.train.index[train_ids]), set(self.train.index[val_ids])
+
+        study_ids = self.df.reset_index()["study_id"]
+
+        train_df = self.df[study_ids.isin(train_ids).values]
+        val_df = self.df[study_ids.isin(val_ids).values]
+        return train_df, val_df
+
 
     def setup(self, stage: str):
         if stage == "fit":
@@ -226,10 +212,10 @@ class DataModule(L.LightningDataModule):
             pass
 
         if stage == "predict":
-            train_df, _ = self.split()
+            # train_df, _ = self.split()
             imgs_df = utils.get_images_df(self.img_dir)
-            imgs_df = imgs_df[~imgs_df.set_index(train_df.index.names).index.isin(train_df.index)].reset_index(drop=True)
-            self.predict_ds = PredictDataset(imgs_df, self.img_dir, transforms=get_predict_transforms(self.img_size))
+            # imgs_df = imgs_df[~imgs_df.set_index(train_df.index.names).index.isin(train_df.index)].reset_index(drop=True)
+            self.predict_ds = PredictDataset(imgs_df, self.img_dir, transforms=get_transforms(self.img_size))
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -263,10 +249,7 @@ if __name__ == "__main__":
     config = yaml.load(open("configs/image.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for x, y, xy, z, plane in dm.train_dataloader():
+    for x, y in dm.train_dataloader():
         print(x.shape, x.dtype)
-        print(z.shape, z.dtype)
-        print(plane.shape, plane.dtype)
-        print({k: (v.shape, v.dtype) for k, v in y.items()})
-        print({k: (v.shape, v.dtype) for k, v in xy.items()})
+        print(y)
         break

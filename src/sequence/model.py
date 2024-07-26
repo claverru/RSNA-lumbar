@@ -2,30 +2,26 @@ from typing import Dict
 
 import torch
 
-from src.image.model import HierarchyHead
 from src import constants, model, losses
-from src.sequence.constants import *
+from src.image.model import CONDS
 
-def get_att(emb_dim, n_heads, n_layers, dropout):
-    layer = torch.nn.TransformerEncoderLayer(
-        emb_dim, n_heads, dropout=dropout, dim_feedforward=emb_dim * 2, batch_first=True, norm_first=True
+
+PLANE2COND = dict(
+    zip(
+        constants.DESCRIPTIONS,
+        (
+            "spinal_canal_stenosis",
+            "neural_foraminal_narrowing",
+            "subarticular_stenosis"
+        )
     )
-    encoder = torch.nn.TransformerEncoder(layer, n_layers, norm=torch.nn.LayerNorm(emb_dim), enable_nested_tensor=False)
-    return encoder
+)
 
 
-def get_proj(emb_dim):
-    return torch.nn.Sequential(
-        torch.nn.Linear(INPUT_SIZE, emb_dim * 2),
-        torch.nn.Linear(emb_dim * 2, emb_dim),
-    )
-
-
-
-def get_head(in_features, dropout):
+def get_proj(in_features, out_features, dropout):
     return torch.nn.Sequential(
         torch.nn.Dropout(dropout),
-        torch.nn.Linear(in_features, 3)
+        torch.nn.Linear(in_features, out_features) if in_features is not None else torch.nn.LazyLinear(out_features)
     )
 
 
@@ -36,7 +32,6 @@ class LightningModule(model.LightningModule):
         n_heads: int,
         n_layers: int,
         att_dropout: float,
-        db_emb_dim: int,
         linear_dropout: float,
         **kwargs
     ):
@@ -44,35 +39,88 @@ class LightningModule(model.LightningModule):
         self.train_loss = losses.LumbarLoss()
         self.val_loss = losses.LumbarLoss()
 
-        self.proj = get_proj(emb_dim)
-        self.seq = get_att(emb_dim, n_heads, n_layers, att_dropout)
-        self.emb = torch.nn.Embedding(4, P, padding_idx=3)
+        projs = {}
+        transformers = {}
+        for plane in constants.DESCRIPTIONS:
+            projs[plane] = get_proj(None, emb_dim, linear_dropout)
+            transformers[plane] = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
 
-        self.head = HierarchyHead(emb_dim, db_emb_dim, 0, with_unseen=False, levels_and_conditions=True)
+        self.projs = torch.nn.ModuleDict(projs)
+        self.transformers = torch.nn.ModuleDict(transformers)
+        self.mid_transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
+        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in CONDS})
 
-    def forward(self, x: torch.Tensor, desc: torch.Tensor) -> Dict[str, torch.Tensor]:
-        padding_mask = desc == 3
+    def forward_one(self, x, meta, mask, plane):
+        x = x[plane]
+        mask = mask[plane]
+        _, _, P, _ = x.shape
+        meta = meta[plane][:, :, None].repeat(1, 1, P, 1)
+        x = torch.concat([x, meta], -1)
+        x = self.projs[plane](x)
+        outs = []
+        for i in range(P):
+            out = self.transformers[plane](x[:, :, i], src_key_padding_mask=mask)
+            out[mask] = -100
+            out = out.amax(1)
+            outs.append(out)
 
-        desc_emb = self.emb(desc) # B, L, P
+        outs = torch.stack(outs, 1)
 
-        x = torch.concat([x, desc_emb], -1)
-        x = self.proj(x)
-        x = self.seq(x, src_key_padding_mask=padding_mask)
+        return outs
 
-        x[padding_mask] = -100
-        x = x.amax(1)
-
-        _, out = self.head(x)
+    def get_out(self, plane, cond, seqs):
+        sides = ("left", "right")
+        levels = constants.LEVELS
         outs = {}
-        for i, level in enumerate(constants.LEVELS):
-            for j, condition in enumerate(constants.CONDITIONS_COMPLETE):
-                k = f"{condition}_{level}"
-                outs[k] = out[:, i, j]
+        match plane:
+
+            case "Axial T2":
+                head = self.heads[cond]
+                for i, side in enumerate(sides):
+                    seq = seqs[:, i]
+                    for level in levels:
+                        k = f"{side}_{cond}_{level}"
+                        outs[k] = head(seq)
+
+            case "Sagittal T1":
+                for side in sides:
+                    k = f"{side}_{cond}"
+                    head = self.heads[k]
+                    for i, level in enumerate(levels):
+                        seq = seqs[:, i]
+                        k1 = f"{k}_{level}"
+                        outs[k1] = head(seq)
+
+            case "Sagittal T2/STIR":
+                head = self.heads[cond]
+                for i, level in enumerate(levels):
+                    seq = seqs[:, i]
+                    k = f"{cond}_{level}"
+                    outs[k] = head(seq)
+
+        return outs
+
+    def forward(self, x, meta, mask) -> Dict[str, torch.Tensor]:
+        seqs = []
+        for plane in x:
+            out = self.forward_one(x, meta, mask, plane)
+            seqs.append(out)
+
+        lens = [s.shape[1] for s in seqs]
+        seqs = torch.concat(seqs, 1)
+
+        seqs: torch.Tensor = self.mid_transformer(seqs)
+        seqs = seqs.split(lens, 1)
+
+        outs = {}
+        for desc_seqs, (desc, cond) in zip(seqs, PLANE2COND.items()):
+            outs.update(self.get_out(desc, cond, desc_seqs))
+
         return outs
 
     def training_step(self, batch, batch_idx):
-        x, desc, y_true_dict = batch
-        y_pred_dict = self.forward(x, desc)
+        x, meta, mask, y_true_dict = batch
+        y_pred_dict = self.forward(x, meta, mask)
         batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
         losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y_true_dict, y_pred_dict)
 
@@ -85,8 +133,8 @@ class LightningModule(model.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, desc, y_true_dict = batch
-        y_pred_dict = self.forward(x, desc)
+        x, meta, mask, y_true_dict = batch
+        y_pred_dict = self.forward(x, meta, mask)
         self.val_loss.update(y_true_dict, y_pred_dict)
 
     def on_validation_epoch_end(self, *args, **kwargs):

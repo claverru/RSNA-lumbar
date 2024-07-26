@@ -4,6 +4,8 @@ from lightning.pytorch.callbacks import BasePredictionWriter
 import pandas as pd
 import torch
 
+from src import utils
+
 
 class Writer(BasePredictionWriter):
     def __init__(self):
@@ -13,12 +15,17 @@ class Writer(BasePredictionWriter):
         out_dir = Path(trainer.logger.log_dir)
         out_path = out_dir / "preds.parquet"
 
-        preds = torch.cat(predictions).numpy()
-        cols = [f"f{i}" for i in range(preds.shape[1])]
+        preds = utils.cat_dict_tensor(predictions)
+        cols = []
+        for k in preds:
+            for i in range(preds[k].shape[1]):
+                cols.append(f"{k}_f{i}")
+        data = torch.concat(list(preds.values()), 1)
 
         # NOTE: reduces significantly memory size, maybe try without it in the future
-        preds_df = pd.DataFrame(preds, columns=cols)#.round(2)
-        print(f"Preds shape: {preds.shape}")
+        preds_df = pd.DataFrame(data, columns=cols)#.round(2)
+        print(preds_df.head())
+        print(preds_df.shape)
 
         df = trainer.predict_dataloaders.dataset.df
 

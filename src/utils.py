@@ -19,6 +19,7 @@ def cat_dict_tensor(dicts: List[Dict[str, torch.Tensor]], f=lambda x: torch.conc
         result[k] = f([d[k] for d in dicts])
     return result
 
+
 # https://github.com/SeuTao/RSNA2019_Intracranial-Hemorrhage-Detection/blob/376afb448852d4c7951458b93e171afc953500c0/2DNet/src/prepare_data.py#L4
 def load_dcm_img(path: Path, add_channels: bool = True, size: Optional[int] = None) -> np.ndarray:
     dicom = pydicom.read_file(path)
@@ -145,6 +146,7 @@ def normalize_meta(df):
 
 def load_meta(path: Path = constants.META_PATH, normalize: bool = True):
     print(f"Loading meta: {path}")
+    path = Path(path)
     df = pd.read_csv(path)
     if normalize:
         if path.stem.endswith("_norm"):
@@ -174,3 +176,21 @@ def generate_random_colors(n: int, bright: bool = True):
     colors = [tuple([int(v * 255) for v in c]) for c in colors]
     random.shuffle(colors)
     return colors
+
+
+def load_coor(coor_path: Path = constants.COOR_PATH):
+    coor = pd.read_csv(coor_path)
+    coor["level"] = coor["level"].str.lower().str.replace("/", "_")
+    coor["condition"] = coor["condition"].str.lower().str.replace(" ", "_")
+    coor["condition_level"] = coor["condition"] + "_" + coor["level"]
+    coor["type"] = coor["level"].where(
+        ~coor["condition"].str.contains("subarticular"), coor["condition"].str.split("_", n=1, expand=True)[0]
+    )
+    return coor
+
+
+def load_train_flatten(train_path: Path = constants.TRAIN_PATH):
+    train = pd.read_csv(train_path, index_col=0)
+    train = train.map(lambda x: constants.SEVERITY2LABEL.get(x, -1))
+    print(train.head())
+    return train
