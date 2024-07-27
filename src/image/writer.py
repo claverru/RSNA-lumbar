@@ -12,7 +12,7 @@ class Writer(BasePredictionWriter):
         super().__init__("epoch")
 
     def cat_preds(self, predictions):
-        if isinstance(predictions, dict):
+        if isinstance(predictions[0], dict):
             preds = utils.cat_dict_tensor(predictions)
         else:
             preds = {"": torch.cat(predictions)}

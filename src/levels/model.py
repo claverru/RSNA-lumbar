@@ -28,16 +28,12 @@ class LightningModule(model.LightningModule):
         x_norm = self.norm(x)
         feats = self.backbone(x_norm)
         emb = self.emb(feats)
-        return emb
-
-    def forward_train(self, x):
-        emb = self.forward(x)
         out = self.head(emb)
-        return out
+        return out, emb
 
     def do_step(self, batch, prefix="train"):
         x, y = batch
-        pred = self.forward_train(x)
+        pred, _ = self.forward(x)
         loss = self.loss_f(pred, y)
         acc = self.acc(pred, y)
         self.log(f"{prefix}_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
@@ -52,4 +48,5 @@ class LightningModule(model.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         X = batch
-        return self.forward(X)
+        pred, emb = self.forward(X)
+        return {"probas": pred.softmax(1), "emb": emb}

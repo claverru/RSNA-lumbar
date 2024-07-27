@@ -92,8 +92,8 @@ def get_aug_transforms(img_size):
                 p=0.5
             ),
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
+            # A.HorizontalFlip(p=0.5),
+            # A.VerticalFlip(p=0.5),
             A.MotionBlur(p=0.1),
             A.GaussNoise(p=0.1),
             A.Normalize((0.485, ), (0.229, )),
