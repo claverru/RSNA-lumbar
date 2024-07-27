@@ -25,10 +25,11 @@ PLANE2COND = dict(
 )
 
 
-def get_proj(in_features, out_features, dropout):
+def get_proj(in_features, out_features, dropout, activation=None):
     return torch.nn.Sequential(
         torch.nn.Dropout(dropout),
-        torch.nn.Linear(in_features, out_features) if in_features is not None else torch.nn.LazyLinear(out_features)
+        torch.nn.Linear(in_features, out_features) if in_features is not None else torch.nn.LazyLinear(out_features),
+        activation if activation is not None else torch.nn.Identity()
     )
 
 
@@ -48,22 +49,38 @@ class LightningModule(model.LightningModule):
 
         projs = {}
         transformers = {}
+        meta_projs = {}
         for plane in constants.DESCRIPTIONS:
             projs[plane] = get_proj(None, emb_dim, linear_dropout)
+            meta_projs[plane] = get_proj(None, emb_dim // 8, linear_dropout)
             transformers[plane] = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
 
         self.projs = torch.nn.ModuleDict(projs)
+        self.meta_projs = torch.nn.ModuleDict(meta_projs)
+        self.levels_proj = get_proj(None, emb_dim // 8, linear_dropout)
+
         self.transformers = torch.nn.ModuleDict(transformers)
         self.mid_transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
         # self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in CONDS})
         self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITION_LEVEL})
 
-    def forward_one(self, x, meta, mask, plane):
+    def forward_one(self, x, meta, levels, mask, plane):
         x = x[plane]
         mask = mask[plane]
+        meta = meta[plane]
+
         _, _, P, _ = x.shape
-        meta = meta[plane][:, :, None].repeat(1, 1, P, 1)
+
+        meta = self.meta_projs[plane](meta)
+        meta = meta[:, :, None].repeat(1, 1, P, 1)
+
         x = torch.concat([x, meta], -1)
+
+        if plane == "Axial T2":
+            levels = self.levels_proj(levels)
+            levels = levels[:, :, None].repeat(1, 1, P, 1)
+            x = torch.concat([x, levels], -1)
+
         x = self.projs[plane](x)
         outs = []
         for i in range(P):
@@ -108,10 +125,10 @@ class LightningModule(model.LightningModule):
 
         return outs
 
-    def forward(self, x, meta, mask) -> Dict[str, torch.Tensor]:
+    def forward(self, x, meta, levels, mask) -> Dict[str, torch.Tensor]:
         seqs = []
         for plane in x:
-            out = self.forward_one(x, meta, mask, plane)
+            out = self.forward_one(x, meta, levels, mask, plane)
             seqs.append(out)
 
         lens = [s.shape[1] for s in seqs]
@@ -127,8 +144,8 @@ class LightningModule(model.LightningModule):
         return outs
 
     def training_step(self, batch, batch_idx):
-        x, meta, mask, y_true_dict = batch
-        y_pred_dict = self.forward(x, meta, mask)
+        x, meta, levels, mask, y_true_dict = batch
+        y_pred_dict = self.forward(x, meta, levels, mask)
         batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
         losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y_true_dict, y_pred_dict)
 
@@ -141,8 +158,8 @@ class LightningModule(model.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, meta, mask, y_true_dict = batch
-        y_pred_dict = self.forward(x, meta, mask)
+        x, meta, levels, mask, y_true_dict = batch
+        y_pred_dict = self.forward(x, meta, levels, mask)
         self.val_loss.update(y_true_dict, y_pred_dict)
 
     def on_validation_epoch_end(self, *args, **kwargs):

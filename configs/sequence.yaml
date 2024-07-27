@@ -9,12 +9,13 @@ data:
     aug: 0.1
     feats_path: lightning_logs/version_1/preds.parquet
     meta_path: data/metadata_v4_norm.csv
+    levels_path: lightning_logs/version_3/preds.parquet
 
 model:
   class_path: src.sequence.model.LightningModule
   init_args:
     emb_dim: 256
-    n_heads: 8
+    n_heads: 4
     n_layers: 4
     att_dropout: 0.2
     linear_dropout: 0.2
@@ -39,7 +40,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 15
+        patience: 10
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
