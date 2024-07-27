@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import cv2
-from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
+from sklearn.model_selection import StratifiedKFold
 import albumentations as A
 import lightning as L
 import numpy as np
@@ -109,9 +109,7 @@ def load_df(
     df = coor.merge(train, how="inner", on=["study_id", "condition_level"]).drop(columns=["condition_level", "level"])
     df = df.merge(desc, how="inner", on=["study_id", "series_id"])
 
-    df["condition"] = df["condition"].where(
-        ~df["type"].isin(["left", "right"]), df["condition"].str.split("_", n=1, expand=True)[1]
-    )
+    df["condition"] = df["condition"].str.replace("right_|left_", "", regex=True)
 
     severity = df.pop("severity").map(constants.SEVERITY2LABEL) + 1
 
@@ -120,7 +118,7 @@ def load_df(
     dummies = dummies.where(dummies == 0, severity, axis=0)
 
     df[dummy_cols] = dummies
-    df = df.groupby(["study_id", "series_id", "instance_number", "series_description", "type"], as_index=False).sum()
+    df = df.groupby(["study_id", "series_id", "instance_number", "series_description", "type"], as_index=False).max()
     df[dummy_cols] -= 1
     df[df == -1] = pd.NA
     types = df["type"].unique()
@@ -133,16 +131,15 @@ def load_df(
 
     planes = ["Sagittal T1", "Sagittal T2/STIR", "Axial T2"]
     conds = [
-        "left_neural_foraminal_narrowing",
-        "right_neural_foraminal_narrowing",
+        "neural_foraminal_narrowing",
         "spinal_canal_stenosis",
         "subarticular_stenosis"
     ]
     fill = pd.DataFrame(
         data=[
-            [-1, -1,  3,  3],
-            [ 3,  3, -1,  3],
-            [ 3,  3,  3, -1]
+            [-1,  3,  3],
+            [ 3, -1,  3],
+            [ 3,  3, -1]
         ],
         columns=conds,
         index=planes
@@ -153,12 +150,15 @@ def load_df(
             this_fill = fill.loc[plane, cond]
             # this_fill = -1
             df.loc[df["series_description"] == plane, cond] = df.loc[df["series_description"] == plane, cond].fillna(this_fill)
+
     df[conds] = df[dummy_cols].astype(int)
     df.loc[df["type"].isin(["right", "left"]) & ~df["series_description"].eq("Axial T2"), conds] = -1
     df.loc[~df["type"].isin(["right", "left"]) & df["series_description"].str.contains("Axial T2"), conds] = -1
     df = df.set_index(["study_id", "series_id", "series_description", "instance_number"])
     df = df.sort_values("type")
-    return df.sort_index()
+    df = df.sort_index()
+    return df
+
 
 
 class DataModule(L.LightningDataModule):

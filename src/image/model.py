@@ -6,8 +6,7 @@ from src import model
 
 LEVELS = ["l1_l2", "l2_l3", "l3_l4", "l4_l5", "l5_s1", "left", "right"]
 CONDS = [
-    "left_neural_foraminal_narrowing",
-    "right_neural_foraminal_narrowing",
+    "neural_foraminal_narrowing",
     "spinal_canal_stenosis",
     "subarticular_stenosis"
 ]
@@ -60,7 +59,7 @@ class LightningModule(model.LightningModule):
                 k = f"{cond}_{level}"
                 preds = preds_dict[level][cond]
                 y = y_dict[level][cond]
-                loss = 0.
+                loss = torch.tensor(0.)
                 if (y != -1).any():
                     loss = self.loss_f(preds, y)
                 self.log(f"{prefix}_{k}", loss, on_epoch=True, prog_bar=False, on_step=False)

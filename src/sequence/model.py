@@ -3,7 +3,14 @@ from typing import Dict
 import torch
 
 from src import constants, model, losses
-from src.image.model import CONDS
+
+
+CONDS = [
+    "left_neural_foraminal_narrowing",
+    "right_neural_foraminal_narrowing",
+    "spinal_canal_stenosis",
+    "subarticular_stenosis"
+]
 
 
 PLANE2COND = dict(
@@ -48,7 +55,8 @@ class LightningModule(model.LightningModule):
         self.projs = torch.nn.ModuleDict(projs)
         self.transformers = torch.nn.ModuleDict(transformers)
         self.mid_transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
-        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in CONDS})
+        # self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in CONDS})
+        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITION_LEVEL})
 
     def forward_one(self, x, meta, mask, plane):
         x = x[plane]
@@ -75,27 +83,27 @@ class LightningModule(model.LightningModule):
         match plane:
 
             case "Axial T2":
-                head = self.heads[cond]
                 for i, side in enumerate(sides):
                     seq = seqs[:, i]
                     for level in levels:
                         k = f"{side}_{cond}_{level}"
+                        head = self.heads[k]
                         outs[k] = head(seq)
 
             case "Sagittal T1":
                 for side in sides:
                     k = f"{side}_{cond}"
-                    head = self.heads[k]
                     for i, level in enumerate(levels):
-                        seq = seqs[:, i]
                         k1 = f"{k}_{level}"
+                        head = self.heads[k1]
+                        seq = seqs[:, i]
                         outs[k1] = head(seq)
 
             case "Sagittal T2/STIR":
-                head = self.heads[cond]
                 for i, level in enumerate(levels):
-                    seq = seqs[:, i]
                     k = f"{cond}_{level}"
+                    head = self.heads[k]
+                    seq = seqs[:, i]
                     outs[k] = head(seq)
 
         return outs
