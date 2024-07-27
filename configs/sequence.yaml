@@ -5,9 +5,9 @@ seed_everything: 128
 data:
   class_path: src.sequence.data_loading.DataModule
   init_args:
-    batch_size: 32
+    batch_size: 16
     aug: 0.1
-    feats_path: lightning_logs/version_2/preds.parquet
+    feats_path: lightning_logs/version_1/preds.parquet
     meta_path: data/metadata_v4_norm.csv
 
 model:
@@ -21,16 +21,11 @@ model:
     optimizer:
       class_path: torch.optim.Adam
       init_args:
-        lr: 1.0
+        lr: 5e-4
     lr_scheduler:
-      class_path: torch.optim.lr_scheduler.CyclicLR
+      class_path: src.model.WarmupLR
       init_args:
-        base_lr: 1e-6
-        max_lr: 1e-3
-        step_size_up: 98
-        step_size_down: 147
-        mode: exp_range
-        gamma: 0.999
+        warmup_steps: 192
     interval: step
 
 trainer:
