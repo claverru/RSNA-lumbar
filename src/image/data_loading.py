@@ -187,7 +187,7 @@ class DataModule(L.LightningDataModule):
     def prepare_data(self):
         pass
 
-    def split(self) -> Tuple[List[int], List[int]]:
+    def split(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
         strats = self.train.astype(str).sum(1)
         skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True)
         for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats)):
@@ -200,7 +200,6 @@ class DataModule(L.LightningDataModule):
         train_df = self.df[study_ids.isin(train_ids).values]
         val_df = self.df[study_ids.isin(val_ids).values]
         return train_df, val_df
-
 
     def setup(self, stage: str):
         if stage == "fit":

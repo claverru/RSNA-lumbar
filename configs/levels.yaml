@@ -43,7 +43,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 2
+        patience: 3
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:

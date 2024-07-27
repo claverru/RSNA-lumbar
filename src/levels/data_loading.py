@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import cv2
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 import albumentations as A
 import lightning as L
 import numpy as np
@@ -113,10 +113,20 @@ def load_df(coor_path: Path = constants.COOR_PATH) -> pd.DataFrame:
     return df.sort_index()
 
 
+def load_predict_df(img_dir: Path = constants.TRAIN_IMG_DIR, desc_path: Path = constants.DESC_PATH):
+    imgs_df = utils.get_images_df(img_dir)
+    desc = utils.load_desc(desc_path)
+    df = imgs_df.merge(desc, how="inner", on=["study_id", "series_id"])
+    df = df[df["series_description"] == "Axial T2"].drop(columns="series_description")
+    return df.sort_values(list(df.columns)).reset_index(drop=True)
+
+
 class DataModule(L.LightningDataModule):
     def __init__(
             self,
             coor_path: Path = constants.COOR_PATH,
+            train_path: Path = constants.TRAIN_PATH,
+            desc_path: Path = constants.DESC_PATH,
             img_dir: Path = constants.TRAIN_IMG_DIR,
             n_splits: int = 5,
             this_split: int = 0,
@@ -131,19 +141,26 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_size = img_size
+        self.train = utils.load_train_flatten(train_path)
         self.df = load_df(coor_path)
+        self.desc_path = desc_path
 
     def prepare_data(self):
         pass
 
     def split(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        strats = self.df["level"]
-        groups = self.df.reset_index()["study_id"]
-        skf = StratifiedGroupKFold(n_splits=self.n_splits, shuffle=True)
-        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
+        strats = self.train.astype(str).sum(1)
+        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True)
+        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats)):
             if i == self.this_split:
                 break
-        return self.df.iloc[train_ids], self.df.iloc[val_ids]
+        train_ids, val_ids  = set(self.train.index[train_ids]), set(self.train.index[val_ids])
+
+        study_ids = self.df.reset_index()["study_id"]
+
+        train_df = self.df[study_ids.isin(train_ids).values]
+        val_df = self.df[study_ids.isin(val_ids).values]
+        return train_df, val_df
 
     def setup(self, stage: str):
         if stage == "fit":
@@ -156,7 +173,7 @@ class DataModule(L.LightningDataModule):
 
         if stage == "predict":
             # train_df, _ = self.split()
-            imgs_df = utils.get_images_df(self.img_dir)
+            imgs_df = load_predict_df(self.img_dir, self.desc_path)
             # imgs_df = imgs_df[~imgs_df.set_index(train_df.index.names).index.isin(train_df.index)].reset_index(drop=True)
             self.predict_ds = PredictDataset(imgs_df, self.img_dir, transforms=get_transforms(self.img_size))
 
