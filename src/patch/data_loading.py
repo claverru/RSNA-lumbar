@@ -19,10 +19,12 @@ class Dataset(torch.utils.data.Dataset):
         self,
         df: pd.DataFrame,
         img_dir: Path = constants.TRAIN_IMG_DIR,
+        size_ratio: int = 10,
         transforms: Optional[A.Compose] = None
     ):
         self.df = df
         self.img_dir = img_dir
+        self.size_ratio = size_ratio
         self.transforms = transforms
         self.index2id = {i: idx for i, idx in enumerate(self.df.index.unique())}
         self.dummy_cols = df.columns[~df.columns.isin(["x", "y"])]
@@ -38,7 +40,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def get_patch(self, img, keypoint):
         h, w = img.shape
-        half_side = max(h, w) // 10
+        half_side = max(h, w) // self.size_ratio
         x, y = keypoint
         x, y = (int(x * img.shape[1]), int(y * img.shape[0]))
         xmin, ymin, xmax, ymax = x - half_side, y - half_side, x + half_side, y + half_side
@@ -142,7 +144,7 @@ def load_keypoints(
     ]
 
     df[["type", "coor"]] = df.pop("variable").str.rsplit("_", n=1, expand=True)
-    df = df.set_index(index + ["type", "coor"]).unstack()["value"].reset_index()
+    df = df.set_index(index + ["type", "coor"]).unstack()["value"]
     return df
 
 
@@ -163,38 +165,57 @@ def load_df(
     df = df.merge(desc, how="inner", on=["study_id", "series_id"])
 
     # reduce conditions
-    df["condition"] = df["condition"].where(
-        ~df["type"].isin(["left", "right"]), df["condition"].str.split("_", n=1, expand=True)[1]
-    )
+    df["condition"] = df["condition"].str.replace("right_|left_", "", regex=True)
 
     severity = df.pop("severity").map(constants.SEVERITY2LABEL) + 1
 
     dummies = df.pop("condition").str.get_dummies()
     dummy_cols = dummies.columns
-
     dummies = dummies.where(dummies == 0, severity, axis=0)
 
     df[dummy_cols] = dummies
-    df = df.groupby(["study_id", "series_id", "instance_number", "type"], as_index=False).sum()
+    df = df.groupby(["study_id", "series_id", "instance_number", "series_description", "type"], as_index=False).max()
+    df[dummy_cols] -= 1
+    df[df == -1] = pd.NA
+    types = df["type"].unique()
+    df = df.set_index(["study_id", "series_id", "series_description", "instance_number", "type"])
 
-    # add "unseen" class
-    dummies = df[dummy_cols].values
+    new_index = [i[:-1] for i in df.index]
+    new_index = [i + (t, ) for i in set(new_index) for t in types]
 
-    axial_t2 = (df[["series_description"]] == "Axial T2").values
-    dummies = np.where(axial_t2 & (dummies == 0), 4, dummies)
+    df = df.reindex(new_index).reset_index()
 
-    sagittal_t1 = (df[["series_description"]] == "Sagittal T1").values
-    not_foraminal = ~dummy_cols.str.contains("foraminal")
-    dummies[:, not_foraminal] = np.where(sagittal_t1 & (dummies[:, not_foraminal] == 0), 4, dummies[:, not_foraminal])
+    planes = ["Sagittal T1", "Sagittal T2/STIR", "Axial T2"]
+    conds = [
+        "neural_foraminal_narrowing",
+        "spinal_canal_stenosis",
+        "subarticular_stenosis"
+    ]
+    fill = pd.DataFrame(
+        data=[
+            [-1,  3,  3],
+            [ 3, -1,  3],
+            [ 3,  3, -1]
+        ],
+        columns=conds,
+        index=planes
+    )
 
-    sagittal_t2 = (df[["series_description"]] == "Sagittal T2/STIR").values
-    dummies = np.where(sagittal_t2 & (dummies == 0), 4, dummies)
+    for plane in planes:
+        for cond in dummy_cols:
+            this_fill = fill.loc[plane, cond]
+            # this_fill = -1
+            df.loc[df["series_description"] == plane, cond] = df.loc[df["series_description"] == plane, cond].fillna(this_fill)
 
-    df[dummy_cols] = dummies - 1
+    df[conds] = df[dummy_cols].astype(int)
+    df.loc[df["type"].isin(["right", "left"]) & ~df["series_description"].eq("Axial T2"), conds] = -1
+    df.loc[~df["type"].isin(["right", "left"]) & df["series_description"].str.contains("Axial T2"), conds] = -1
 
-    df = df.merge(keypoints, how="inner", on=["study_id", "series_id", "series_description", "instance_number", "type"])
+    df = df.set_index(["study_id", "series_id", "series_description", "instance_number", "type"])
+    df = df[df.mean(1) != -1]
+    df = df.merge(keypoints, how="inner", left_index=True, right_index=True)
 
-    return df.set_index(["study_id", "series_id", "series_description", "instance_number", "type"]).sort_index()
+    return df
 
 
 
@@ -206,6 +227,7 @@ class DataModule(L.LightningDataModule):
             coor_path: Path = constants.COOR_PATH,
             train_path: Path = constants.TRAIN_PATH,
             img_dir: Path = constants.TRAIN_IMG_DIR,
+            size_ratio: int = 10,
             n_splits: int = 5,
             this_split: int = 0,
             img_size: int = 256,
@@ -214,6 +236,7 @@ class DataModule(L.LightningDataModule):
         ):
         super().__init__()
         self.img_dir = Path(img_dir)
+        self.size_ratio = size_ratio
         self.n_splits = n_splits
         self.this_split = this_split
         self.batch_size = batch_size
@@ -237,8 +260,8 @@ class DataModule(L.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             train_df, val_df = self.split()
-            self.train_ds = Dataset(train_df, self.img_dir, transforms=get_aug_transforms(self.img_size))
-            self.val_ds = Dataset(val_df, self.img_dir, transforms=get_transforms(self.img_size))
+            self.train_ds = Dataset(train_df, self.img_dir, self.size_ratio, transforms=get_aug_transforms(self.img_size))
+            self.val_ds = Dataset(val_df, self.img_dir, self.size_ratio, transforms=get_transforms(self.img_size))
 
         if stage == "test":
             pass
@@ -278,7 +301,7 @@ class DataModule(L.LightningDataModule):
 if __name__ == "__main__":
     import yaml
 
-    config = yaml.load(open("configs/image.yaml"), Loader=yaml.FullLoader)
+    config = yaml.load(open("configs/patch.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
     for x, y in dm.train_dataloader():
