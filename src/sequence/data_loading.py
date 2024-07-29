@@ -4,7 +4,6 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import lightning as L
-from sklearn.model_selection import StratifiedKFold
 import torch
 
 from src import constants, utils
@@ -14,89 +13,53 @@ from src.sequence.constants import *
 class Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        study_ids: List[int],
         train: pd.DataFrame,
         meta: pd.DataFrame,
         feats: pd.DataFrame,
-        levels_df: pd.DataFrame,
         aug: float = 0.2
     ):
-        self.study_ids = study_ids
         self.train = train
+        self.train_index = train.index
         self.meta = meta
         self.feats = feats
-        self.levels_df = levels_df
         self.feats_index = set(feats.index)
         self.n_feats = len(feats.columns)
         self.n_meta = len(meta.columns)
         self.aug = aug
         self.levels = list(set([c.rsplit("_", 1)[0] for c in feats.columns]))
-        self.levels_df_index = set(levels_df.index)
 
     def __len__(self):
-        return len(self.study_ids)
+        return len(self.train_index)
 
-    def get_target(self, study_id):
-        return self.train.loc[study_id].apply(torch.tensor).to_dict()
+    def get_target(self, idx):
+        return self.train.loc[idx].apply(torch.tensor).to_dict()
 
-    # def do_aug(self, values: np.ndarray) -> np.ndarray:
-    #     mask = np.random.rand(values.shape[0], N_IMG_ENSEMBLES, 1) > self.aug
-    #     mask = mask.repeat(len(self.fids) // N_IMG_ENSEMBLES, -1).reshape(mask.shape[0], -1)
-    #     values[:, self.fids] *= mask
-    #     return values
+    def load_meta(self, study_id):
+        return torch.tensor(self.meta.loc[study_id].values, dtype=torch.float)
 
-    def get_feats(self, study_id, description):
-        index = (study_id, description)
-        levels = ["right", "left"] if "Axial" in description else [c for c in self.levels if c not in ["right", "left"]]
-        n = len(levels)
-        cols = self.feats.columns.str.contains("|".join(levels))
-
-        if index in self.feats_index:
-            values = self.feats.loc[index].values.astype(np.float32)
-        else:
-            values = np.zeros((1, self.n_feats), dtype=np.float32)
-
-        values = values[:, cols].reshape(values.shape[0], n, -1)
-
-        return values
-
-    def get_levels(self, study_id):
-        if study_id in self.levels_df_index:
-            return self.levels_df.loc[study_id].values
-        else:
-            return np.zeros((1, self.levels_df.shape[1]), dtype=np.float32)
-
-    def load_meta(self, study_id, description):
-        index = (study_id, description)
-        if index in self.feats_index:
-            values = self.meta.loc[index].values.astype(np.float32)
-        else:
-            values = np.zeros((1, self.n_meta), dtype=np.float32)
-        return values
+    def load_feats(self, study_id, level):
+        cols = self.feats.columns.str.contains(level)
+        return torch.tensor(self.feats.loc[study_id].values[:, cols], dtype=torch.float)
 
     def __getitem__(self, index):
-        study_id = self.study_ids[index]
-        target = self.get_target(study_id)
-        X = {}
-        meta = {}
-        mask = {}
-        for description in constants.DESCRIPTIONS:
-            X[description] = torch.tensor(self.get_feats(study_id, description))
-            mask[description] = torch.tensor([False] * len(X[description]))
-            meta[description] = torch.tensor(self.load_meta(study_id, description))
-
-        levels = torch.tensor(self.get_levels(study_id))
-
-        return X, meta, levels, mask, target
+        idx = self.train_index[index]
+        study_id, level = idx
+        target = self.get_target(idx)
+        X = self.load_feats(study_id, level)
+        meta = self.load_meta(study_id)
+        mask = torch.tensor([False] * len(X))
+        return X, meta, mask, target
 
 
-def load_feats(path: Path = constants.FEATS_PATH, desc_path: Path = constants.DESC_PATH) -> pd.DataFrame:
+def load_feats(path: Path = constants.FEATS_PATH) -> pd.DataFrame:
     print(f"Loading feats DataFrame: {path}")
-    df = pd.read_parquet(path)
-    desc = utils.load_desc(desc_path)
-    df = df.merge(desc, how="inner", on=["study_id", "series_id"])
+    df = pd.read_parquet("lightning_logs/version_1/preds.parquet")
     df = df.sort_values(["study_id", "series_id", "instance_number"])
-    df = df.drop(columns=["instance_number", "series_id"]).set_index(["study_id", "series_description"]).sort_index()
+    df = df.drop(columns=["series_id", "instance_number"])
+    df = df.set_index(["study_id"])
+    emb_dim = len(df.columns) // len(constants.LEVELS)
+    new_cols = [f"{l}_{i}" for l in constants.LEVELS for i in range(emb_dim)]
+    df.columns = new_cols
     print(df.head())
     return df
 
@@ -110,7 +73,7 @@ def load_meta(
 
     df = pd.merge(desc, meta, on=["study_id", "series_id"])
     df = df.sort_values(["study_id", "series_id", "instance_number"])
-    df = df.drop(columns=["instance_number", "series_id"]).set_index(["study_id", "series_description"]).sort_index()
+    df = df.drop(columns=["instance_number", "series_id", "series_description"]).set_index(["study_id"]).sort_index()
     print(df.head())
     return df
 
@@ -122,24 +85,31 @@ def load_levels(levels_path):
     return df
 
 
+def load_this_train(train_path: Path = constants.TRAIN_PATH):
+    pat = r"^(.*)_(l\d+_[l|s]\d+)$"
+    df = utils.load_train(train_path)
+    df[["condition", "level"]] = df.pop("condition_level").str.extractall(pat).reset_index()[[0, 1]]
+    df["severity"] = df["severity"].map(lambda x: constants.SEVERITY2LABEL.get(x, -1))
+    df = df.set_index(["study_id", "level", "condition"]).unstack(fill_value=-1)["severity"]
+    return df
+
+
 def collate_fn(data: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]]):
-    X, meta, levels, mask, targets = zip(*data)
-    X = utils.cat_dict_tensor(X, lambda x: utils.pad_sequences(x, 0))
-    meta = utils.cat_dict_tensor(meta, lambda x: utils.pad_sequences(x, 0))
-    levels = utils.pad_sequences(levels, 0)
-    mask = utils.cat_dict_tensor(mask, lambda x: utils.pad_sequences(x, True))
+    X, meta, mask, targets = zip(*data)
+    X = utils.pad_sequences(X, 0)
+    meta = utils.pad_sequences(meta, 0)
+    mask = utils.pad_sequences(mask, True)
     targets = utils.cat_dict_tensor(targets, utils.stack)
-    return X, meta, levels, mask, targets
+    return X, meta, mask, targets
 
 
 class DataModule(L.LightningDataModule):
     def __init__(
             self,
-            feats_path: Path = constants.FEATS_PATH,
+            feats_path: Path,
             meta_path: Path = constants.META_PATH,
             desc_path: Path = constants.DESC_PATH,
             train_path: Path = constants.TRAIN_PATH,
-            levels_path: Path = Path("lightning_logs/version_3/preds.parquet"),
             aug: float = 0.2,
             n_splits: int = 5,
             this_split: int = 0,
@@ -152,27 +122,19 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.aug = aug
         self.num_workers = num_workers
-        self.train = utils.load_train_flatten(train_path)
+        self.train = load_this_train(train_path)
         self.meta = load_meta(meta_path, desc_path)
-        self.feats = load_feats(feats_path, desc_path)
-        self.levels = load_levels(levels_path)
-
-    def prepare_data(self):
-        pass
+        self.feats = load_feats(feats_path)
+        self.train_path = train_path
 
     def split(self) -> Tuple[List[int], List[int]]:
-        strats = self.train.astype(str).sum(1)
-        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True)
-        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats)):
-            if i == self.this_split:
-                break
-        return list(self.train.index[train_ids]), list(self.train.index[val_ids])
+        return utils.split(self.train, self.n_splits, self.this_split, self.train_path)
 
     def setup(self, stage: str):
         if stage == "fit":
-            train_study_ids, val_study_ids = self.split()
-            self.train_ds = Dataset(train_study_ids, self.train, self.meta, self.feats, self.levels, aug=self.aug)
-            self.val_ds = Dataset(val_study_ids, self.train, self.meta, self.feats, self.levels, aug=0.0)
+            train_df, val_df = self.split()
+            self.train_ds = Dataset(train_df, self.meta, self.feats, aug=self.aug)
+            self.val_ds = Dataset(val_df, self.meta, self.feats, aug=0.0)
 
         if stage == "test":
             pass
@@ -207,11 +169,10 @@ if __name__ == "__main__":
     config = yaml.load(open("configs/sequence.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for X, meta, levels, mask, targets in dm.train_dataloader():
+    for X, meta, mask, targets in dm.train_dataloader():
         print("---------------------------------------")
-        print("X", {k: (v.shape, v.dtype) for k, v in X.items()})
-        print("meta", {k: (v.shape, v.dtype) for k, v in meta.items()})
-        print("levels", (levels.shape, levels.dtype))
-        print("mask", {k: (v.shape, v.dtype) for k, v in mask.items()})
+        print("X", (X.shape, X.dtype))
+        print("meta", (meta.shape, meta.dtype))
+        print("mask", (mask.shape, mask.dtype))
         print("targets", {k: (v.shape, v.dtype) for k, v in targets.items()})
         print("---------------------------------------")

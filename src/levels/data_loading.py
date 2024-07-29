@@ -84,7 +84,7 @@ def get_aug_transforms(img_size):
         [
             A.ShiftScaleRotate(
                 shift_limit=(-0.1, 0.1),
-                rotate_limit=(-20, 20),
+                rotate_limit=(-15, 15),
                 scale_limit=0.1,
                 interpolation=cv2.INTER_CUBIC,
                 # border_mode=cv2.BORDER_CONSTANT,
@@ -141,26 +141,15 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_size = img_size
-        self.train = utils.load_train_flatten(train_path)
         self.df = load_df(coor_path)
         self.desc_path = desc_path
+        self.train_path = train_path
 
     def prepare_data(self):
         pass
 
     def split(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        strats = self.train.astype(str).sum(1)
-        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True)
-        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats)):
-            if i == self.this_split:
-                break
-        train_ids, val_ids  = set(self.train.index[train_ids]), set(self.train.index[val_ids])
-
-        study_ids = self.df.reset_index()["study_id"]
-
-        train_df = self.df[study_ids.isin(train_ids).values]
-        val_df = self.df[study_ids.isin(val_ids).values]
-        return train_df, val_df
+        return utils.split(self.df, self.n_splits, self.this_split, self.train_path)
 
     def setup(self, stage: str):
         if stage == "fit":

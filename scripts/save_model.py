@@ -16,8 +16,8 @@ class Ensemble(L.LightningModule):
         super().__init__()
         self.module_list = torch.nn.ModuleList(modules)
 
-    def forward(self, x: torch.Tensor, desc: torch.Tensor) -> Dict[str, torch.Tensor]:
-        result_list: List[Dict[str, torch.Tensor]] = [module(x, desc) for module in self.module_list]
+    def forward(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
+        result_list: List[Dict[str, torch.Tensor]] = [module(x, meta, mask) for module in self.module_list]
         result_dict: Dict[str, torch.Tensor] = {}
         for k in result_list[0]:
             init = torch.zeros_like(result_list[0][k])
@@ -27,6 +27,7 @@ class Ensemble(L.LightningModule):
 
 def get_loss(checkpoint_path: Path) -> float:
     return float(checkpoint_path.stem.split("=")[-1])
+
 
 def load_from_checkpoints_dir(checkpoints_dir: Path) -> Tuple[List[model.LightningModule], int]:
     modules = []
@@ -42,8 +43,8 @@ def load_from_checkpoints_dir(checkpoints_dir: Path) -> Tuple[List[model.Lightni
     return modules, config, losses
 
 
-def save(checkpoints_dir: Path, out_dir: Path):
-    modules, config, losses = load_from_checkpoints_dir(checkpoints_dir)
+def save(ckpts_dir: Path, out_dir: Path):
+    modules, config, losses = load_from_checkpoints_dir(ckpts_dir)
     ens = Ensemble(modules)
 
     model_path = out_dir / "model.pt"
@@ -52,16 +53,16 @@ def save(checkpoints_dir: Path, out_dir: Path):
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    x = torch.randn(2, 3, constants.INPUT_SIZE - constants.P)
-    desc = torch.randint(0, 4, (2, 3))
-    example_input = (x, desc)
+    x = torch.randn(2, 3, 512)
+    meta = torch.randn(2, 3, 103)
+    mask = torch.rand_like(x[:, :, 0]) > 0.5
+    example_input = (x, meta, mask)
+    print([i.shape for i in example_input])
+    print({k: v.shape for k, v in ens(*example_input).items()})
+
+
     ts = ens.to_torchscript(model_path, "trace", example_inputs=example_input, strict=False)
 
-    print({k: v.shape for k, v in ts(*example_input).items()})
-
-    x = torch.randn(4, 5, constants.INPUT_SIZE - constants.P)
-    desc = torch.randint(0, 4, (4, 5))
-    example_input = (x, desc)
     print({k: v.shape for k, v in ts(*example_input).items()})
 
     yaml.dump(config, open(config_path, "w"))

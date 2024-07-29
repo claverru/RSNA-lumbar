@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 import torch
 import tyro
 import lightning as L
@@ -43,14 +43,14 @@ def save(ckpts_dir: Path, out_dir: Path):
     model_path = out_dir / "model.pt"
     config_path = out_dir / "config.yaml"
 
+    example = torch.randn(2, 1, img_size, img_size)
+    print(ens(example).shape)
+
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    ens.to_torchscript(model_path)
+    ts = ens.to_torchscript(model_path)
 
-    ts = torch.jit.load(model_path)
-
-    example = torch.randn(2, 1, img_size, img_size)
-    print(ts(example).shape)
     print(ts(example).shape)
 
     yaml.dump(config, open(config_path, "w"))

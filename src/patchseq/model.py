@@ -30,22 +30,11 @@ class LightningModule(model.LightningModule):
 
         self.F = self.backbone.num_features
         self.D = emb_dim
-        projs = {}
-        transformers = {}
-        norms = {}
-        z_projs = {}
-        for desc in constants.DESCRIPTIONS:
-            transformers[desc] = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
-            norms[desc] = torch.nn.InstanceNorm2d(1)
-            z_projs[desc] = get_proj(1, emb_dim, 0)
-            projs[desc] = get_proj(self.F, emb_dim, 0)
+        self.transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
+        self.norm = torch.nn.InstanceNorm2d(1)
+        self.proj = get_proj(self.F, emb_dim, 0)
 
-        self.projs = torch.nn.ModuleDict(projs)
-        self.z_projs = torch.nn.ModuleDict(z_projs)
-        self.transformers = torch.nn.ModuleDict(transformers)
-        self.norms = torch.nn.ModuleDict(norms)
-        self.mid_transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
-        self.heads = torch.nn.ModuleDict({k: get_head(emb_dim, linear_dropout) for k in patchseq_constants.CONDITIONS})
+        self.heads = torch.nn.ModuleDict({k: get_head(emb_dim, linear_dropout) for k in constants.CONDITIONS_COMPLETE})
 
     def forward_one(self, x: torch.Tensor, mask: torch.Tensor, z: torch.Tensor, desc: str):
         B, T, P, C, H, W = x.shape
@@ -72,63 +61,29 @@ class LightningModule(model.LightningModule):
 
         return seqs
 
-    def forward(
-        self, x: Dict[str, torch.Tensor], masks: Dict[str, torch.Tensor], z: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
+        true_mask = mask.logical_not()
 
-        seqs = []
-        for desc in constants.DESCRIPTIONS:
-            seq = self.forward_one(x[desc], masks[desc], z[desc], desc)
-            seqs.append(seq)
+        B, T, C, H, W = x.shape
 
-        lens = [s.shape[1] for s in seqs]
-        seqs = torch.concat(seqs, 1)
-        seqs: torch.Tensor = self.mid_transformer(seqs)
-        seqs = seqs.split(lens, 1)
+        filter_x = x[true_mask]
+        filter_x = self.norm(filter_x)
+        filter_feats: torch.Tensor = self.backbone(filter_x)
+        filter_feats = self.proj(filter_feats)
 
-        outs = {}
-        for desc_seqs, (desc, cond) in zip(seqs, patchseq_constants.PLANE2COND.items()):
-            outs.update(self.get_out(desc, cond, desc_seqs))
+        feats = torch.zeros((B, T, self.D), device=filter_feats.device, dtype=filter_feats.dtype)
+        feats[true_mask] = filter_feats
 
+        out = self.transformer(feats, src_key_padding_mask=mask)
+        out[mask] = -100
+        out = out.amax(1)
+        outs = {k: head(out) for k, head in self.heads.items()}
         return outs
-
-    def get_out(self, plane, cond, seqs):
-        sides = ("right", "left")
-        levels = constants.LEVELS
-        outs = {}
-        match plane:
-
-            case "Axial T2":
-                head = self.heads[cond]
-                for i, side in enumerate(sides):
-                    seq = seqs[:, i]
-                    for level in levels:
-                        k = f"{side}_{cond}_{level}"
-                        outs[k] = head(seq)
-
-            case "Sagittal T1":
-                for side in sides:
-                    k = f"{side}_{cond}"
-                    head = self.heads[k]
-                    for i, level in enumerate(levels):
-                        seq = seqs[:, i]
-                        k1 = f"{k}_{level}"
-                        outs[k1] = head(seq)
-
-            case "Sagittal T2/STIR":
-                head = self.heads[cond]
-                for i, level in enumerate(levels):
-                    seq = seqs[:, i]
-                    k = f"{cond}_{level}"
-                    outs[k] = head(seq)
-
-        return outs
-
 
     def training_step(self, batch, batch_idx):
-        x, masks, z, y = batch
-        pred = self.forward(x, masks, z)
-        batch_size = y[constants.CONDITION_LEVEL[0]].shape[0]
+        x, masks, y = batch
+        pred = self.forward(x, masks)
+        batch_size = y[list(y)[0]].shape[0]
 
         losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y, pred)
 
@@ -141,8 +96,8 @@ class LightningModule(model.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, masks, z, y = batch
-        pred = self.forward(x, masks, z)
+        x, masks, y = batch
+        pred = self.forward(x, masks)
         self.val_loss.update(y, pred)
 
     def on_validation_epoch_end(self, *args, **kwargs):

@@ -5,86 +5,72 @@ import albumentations as A
 import cv2
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold
 import torch
 from albumentations.pytorch import ToTensorV2
 import lightning as L
 
 from src import constants, utils
+from src.sequence.data_loading import load_this_train
 
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        study_ids: List[int],
-        df: pd.DataFrame,
         train: pd.DataFrame,
+        df: pd.DataFrame,
+        img_dir: Path,
         img_size: int,
+        size_ratio: int,
         transforms: A.Compose
     ):
-        self.study_ids = study_ids
         self.df = df
+        self.img_dir = img_dir
+        self.train_index = train.index
         self.train = train
         self.img_size = img_size
         self.transforms = transforms
         self.df_index = set(list(df.index))
         self.kp_cols = [c for c in df.columns if c.startswith("f")]
+        self.size_ratio = size_ratio
 
     def __len__(self):
-        return len(self.study_ids)
+        return len(self.train_index)
 
-    def get_labels(self, study_id):
-        d: dict = self.train.loc[study_id].set_index("condition_level")["severity"].to_dict()
-        return {k: torch.tensor(constants.SEVERITY2LABEL.get(d.get(k), -1)) for k in constants.CONDITION_LEVEL}
+    def get_target(self, idx):
+        return self.train.loc[idx].apply(torch.tensor).to_dict()
 
-    def get_chunk(self, study_id, description) -> pd.DataFrame:
-        index = (study_id, description)
-        if index in self.df_index:
-            return self.df.loc[index]
+    def get_patch(self, img, keypoint):
+        h, w = img.shape
+        half_side = max(h, w) // self.size_ratio
+        x, y = keypoint
+        x, y = (int(x * img.shape[1]), int(y * img.shape[0]))
+        xmin, ymin, xmax, ymax = x - half_side, y - half_side, x + half_side, y + half_side
+        xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, w) , min(ymax, h)
+        patch = img[ymin:ymax, xmin:xmax]
+        patch = self.transforms(image=patch)["image"]
+        return patch
 
-    def get_crops(self, chunk: Optional[pd.DataFrame], description: str) -> torch.Tensor:
-        if chunk is None:
-            n = 2 if description == "Axial T2" else 5
-            return torch.zeros((1, n, 1, self.img_size, self.img_size), dtype=torch.float32)
 
-        study_crops = []
-        for _, row in chunk.iterrows():
-            img_path = str(row["image_path"])
-            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-            h, w = img.shape
-            half_side = max(h, w) // 10
-            keypoints = row[self.kp_cols].to_numpy().reshape(-1, 2)
-            if description == "Axial T2":
-                keypoints = keypoints[-2:]
-            else:
-                keypoints = keypoints[:-2]
-            img_crops = []
-            for (x, y) in keypoints:
-                x, y = (int(x * img.shape[1]), int(y * img.shape[0]))
-                xmin, ymin, xmax, ymax = x - half_side, y - half_side, x + half_side, y + half_side
-                xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, w) , min(ymax, h)
-                crop = img[ymin:ymax, xmin:xmax]
-                crop = self.transforms(image=crop)["image"]
-                img_crops.append(crop)
-            img_crops = torch.stack(img_crops, 0)
-            study_crops.append(img_crops)
-        study_crops = torch.stack(study_crops, 0)
+    def get_patches(self, study_id, level) -> torch.Tensor:
+        chunk = self.df.loc[(study_id, level)]
+        patches = []
+        for (series_id, instance_number), gdf in chunk.groupby(["series_id", "instance_number"]):
+            img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
+            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+            for keypoint in gdf[["x", "y"]].values:
+                patch = self.get_patch(img, keypoint)
+                patches.append(patch)
 
-        return study_crops
+        patches = torch.stack(patches, 0)
+
+        return patches
 
     def __getitem__(self, index):
-        study_id = self.study_ids[index]
-        labels = self.get_labels(study_id)
-        X = {}
-        masks = {}
-        z = {}
-        for description in constants.DESCRIPTIONS:
-            chunk = self.get_chunk(study_id, description)
-            x = self.get_crops(chunk, description)
-            X[description] = x
-            masks[description] = torch.tensor([False] * len(x))
-            z[description] = torch.linspace(0, 1, len(x))
-        return X, masks, z, labels
+        study_id, level = self.train_index[index]
+        target = self.get_target((study_id, level))
+        X = self.get_patches(study_id, level)
+        mask = torch.tensor([False] * len(X))
+        return X, mask, target
 
 
 def get_transforms(img_size):
@@ -110,8 +96,8 @@ def get_aug_transforms(img_size):
                 p=0.5
             ),
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
+            # A.HorizontalFlip(p=0.5),
+            # A.VerticalFlip(p=0.5),
             A.MotionBlur(p=0.1),
             A.GaussNoise(p=0.1),
             A.Normalize((0.485, ), (0.229, )),
@@ -121,38 +107,74 @@ def get_aug_transforms(img_size):
 
 
 def collate_fn(data):
-    X, masks, z, labels = zip(*data)
-    X = utils.cat_dict_tensor(X, lambda x: utils.pad_sequences(x, padding_value=0))
-    z = utils.cat_dict_tensor(z, lambda x: utils.pad_sequences(x, padding_value=0))
-    masks = utils.cat_dict_tensor(masks, lambda x: utils.pad_sequences(x, padding_value=True))
+    X, mask, labels = zip(*data)
+    X = utils.pad_sequences(X, padding_value=0)
+    mask = utils.pad_sequences(mask, padding_value=True)
     labels = utils.cat_dict_tensor(labels, torch.stack)
-    return X, masks, z, labels
+    return X, mask, labels
+
+
+def load_keypoints(keypoints_path: Path = constants.KEYPOINTS_PATH) -> pd.DataFrame:
+    df = pd.read_parquet(keypoints_path)
+    levels_sides = constants.LEVELS + ["left", "right"]
+    levels_sides_cols = [f"{side}_{x}" for side in levels_sides for x in ("x", "y")]
+    df = df.set_index(constants.BASIC_COLS)
+    df.columns = levels_sides_cols
+    df = df.melt(ignore_index=False)
+    df[["level", "coor"]] = df.pop("variable").str.rsplit("_", n=1, expand=True)
+    df = df.set_index("level", append=True)
+    df = df.pivot_table(values="value", index=df.index.names, columns="coor").reset_index()
+    return df
+
+
+def load_levels(levels_path: Path = constants.LEVELS_PATH):
+    df = pd.read_parquet(levels_path)
+    basic_cols = ["study_id", "series_id", "instance_number"]
+    probas_cols = [c for c in df.columns if c.startswith("probas")]
+    df = df[basic_cols + probas_cols]
+    df["level_id"] = df[probas_cols].values.argmax(1)
+    df["level"] = df["level_id"].map(lambda x: constants.LEVELS[x])
+    df = df.sort_values(basic_cols)
+    df = df.drop(columns=probas_cols + ["level_id"])
+    return df
 
 
 def load_df(
-    keypoints_path = Path("data/preds_keypoints.parquet"),
-    desc_path = constants.DESC_PATH,
-    img_dir = Path("data/train_images_clip")
+    keypoints_path: Path = constants.KEYPOINTS_PATH,
+    levels_path: Path = constants.LEVELS_PATH,
+    desc_path: Path = constants.DESC_PATH
 ):
-    keypoints = pd.read_parquet(keypoints_path)
+    keypoints = load_keypoints(keypoints_path)
     desc = utils.load_desc(desc_path)
-    df = pd.merge(desc, keypoints, how="inner", on=["study_id", "series_id"])
+    levels = load_levels(levels_path)
+
+    # merge desc and filter
+    df = pd.merge(keypoints, desc, how="inner", on=constants.BASIC_COLS[:2])
+    is_axial = df["series_description"].eq("Axial T2")
+    is_sagittal = ~is_axial
+    is_levels = df["level"].isin(constants.LEVELS)
+    is_sides = ~is_levels
+    df = df[(is_axial & is_sides) | (is_sagittal & is_levels)]
+
+    # merge levels and filter
+    df = pd.merge(df, levels, how="left", on=constants.BASIC_COLS)
+    df["level"] = df.pop("level_x").where(df["level_y"].isna(), df.pop("level_y"))
+
+    # add path
     df = df.sort_values(["study_id", "series_id", "instance_number"])
-    df["image_path"] = df.apply(
-        lambda x: utils.get_image_path(x["study_id"], x["series_id"], x["instance_number"], img_dir, suffix=".png"),
-        axis=1
-    )
-    df = df.drop(columns=["instance_number", "series_id"]).set_index(["study_id", "series_description"]).sort_index()
+    df = df.drop(columns=["series_description"]).set_index(["study_id", "level"]).sort_index()
     return df
 
 
 class DataModule(L.LightningDataModule):
     def __init__(
             self,
-            keypoints_path: Path = Path("data/preds_keypoints.parquet"),
+            keypoints_path: Path = constants.KEYPOINTS_PATH,
             desc_path: Path = constants.DESC_PATH,
             train_path: Path = constants.TRAIN_PATH,
+            levels_path: Path = constants.LEVELS_PATH,
             img_size: int = 224,
+            size_ratio: int = 10,
             img_dir: Path = constants.TRAIN_IMG_DIR,
             n_splits: int = 5,
             this_split: int = 0,
@@ -161,28 +183,28 @@ class DataModule(L.LightningDataModule):
         ):
         super().__init__()
         self.img_size = img_size
+        self.size_ratio = size_ratio
         self.n_splits = n_splits
         self.this_split = this_split
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_dir = Path(img_dir)
-        self.df = load_df(Path(keypoints_path), Path(desc_path), self.img_dir)
-        self.train = utils.load_train(train_path).set_index("study_id").sort_index()
+        self.df = load_df(Path(keypoints_path), Path(levels_path), Path(desc_path))
+        self.train = load_this_train(train_path)
+        self.train_path = train_path
 
     def split(self) -> Tuple[List[int], List[int]]:
-        strats = self.train["condition_level"] + "_" + self.train["severity"]
-        groups = self.train.reset_index()["study_id"]
-        skf = StratifiedGroupKFold(n_splits=self.n_splits, shuffle=True)
-        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
-            if i == self.this_split:
-                break
-        return list(set(groups[train_ids])), list(set(groups[val_ids]))
+        return utils.split(self.train, self.n_splits, self.this_split, self.train_path)
 
     def setup(self, stage: str):
         if stage == "fit":
-            train_study_ids, val_study_ids = self.split()
-            self.train_ds = Dataset(train_study_ids, self.df, self.train, self.img_size, get_aug_transforms(self.img_size))
-            self.val_ds = Dataset(val_study_ids, self.df, self.train, self.img_size, get_transforms(self.img_size))
+            train_df, val_df = self.split()
+            self.train_ds = Dataset(
+                train_df, self.df, self.img_dir, self.img_size, self.size_ratio, get_aug_transforms(self.img_size)
+            )
+            self.val_ds = Dataset(
+                val_df, self.df, self.img_dir, self.img_size, self.size_ratio, get_transforms(self.img_size)
+            )
 
         if stage == "test":
             pass
@@ -214,14 +236,13 @@ class DataModule(L.LightningDataModule):
 if __name__ == "__main__":
     import yaml
 
-    config = yaml.load(open("configs/classplusseq.yaml"), Loader=yaml.FullLoader)
+    config = yaml.load(open("configs/patchseq.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for X, masks, z, y in dm.train_dataloader():
+    for X, mask, labels in dm.train_dataloader():
         print()
-        print({k: (v.shape, v.dtype) for k, v in X.items()})
-        print({k: (v.shape, v.dtype) for k, v in masks.items()})
-        print({k: (v.shape, v.dtype) for k, v in z.items()})
-        print({k: (v.shape, v.dtype) for k, v in y.items()})
+        print(X.shape, X.dtype)
+        print(mask.shape, mask.dtype)
+        print({k: (v.shape, v.dtype) for k, v in labels.items()})
         print()
         input()

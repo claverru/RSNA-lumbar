@@ -1,12 +1,13 @@
 import colorsys
 from pathlib import Path
 import random
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from functools import partial
 
 import numpy as np
 import pandas as pd
 import pydicom
+from sklearn.model_selection import StratifiedGroupKFold
 import torch
 import cv2
 
@@ -194,3 +195,23 @@ def load_train_flatten(train_path: Path = constants.TRAIN_PATH):
     train = train.map(lambda x: constants.SEVERITY2LABEL.get(x, -1))
     print(train.head())
     return train
+
+
+def split(df: pd.DataFrame, n_splits: int, this_split: int, train_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    train = load_train(train_path)
+
+    strats = train["condition_level"] + "_" + train["severity"]
+    groups = train["study_id"]
+
+    skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True)
+    for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
+        if i == this_split:
+            break
+
+    train_study_ids, val_study_ids = set(groups[train_ids]), set(groups[val_ids])
+    study_id = df.reset_index()["study_id"]
+
+    train_df = df.iloc[study_id.isin(train_study_ids).values]
+    val_df = df.iloc[study_id.isin(val_study_ids).values]
+
+    return train_df, val_df

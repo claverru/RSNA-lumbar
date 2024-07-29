@@ -1,15 +1,7 @@
 import torch
 import timm
 
-from src import model
-
-
-LEVELS = ["l1_l2", "l2_l3", "l3_l4", "l4_l5", "l5_s1", "left", "right"]
-CONDS = [
-    "neural_foraminal_narrowing",
-    "spinal_canal_stenosis",
-    "subarticular_stenosis"
-]
+from src import model, constants
 
 
 def get_proj(in_dim, out_dim, dropout):
@@ -28,13 +20,15 @@ class LightningModule(model.LightningModule):
         self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=self.in_channels).eval()
         n_feats = self.backbone.num_features
 
-        self.levels = torch.nn.ModuleDict({k: get_proj(n_feats, emb_dim, dropout) for k in LEVELS})
-        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 4, dropout) for k in CONDS})
+        self.levels = get_proj(n_feats, emb_dim * len(constants.LEVELS), dropout)
+        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 4, dropout) for k in constants.CONDITIONS_COMPLETE})
 
         self.norm = torch.nn.InstanceNorm2d(self.in_channels)
 
     def forward_train(self, x):
         levels = self.forward(x)
+        levels = levels.reshape(levels.shape[0], len(constants.LEVELS), -1)
+        levels = {k: levels[:, i] for i, k in enumerate(constants.LEVELS)}
         outs = {}
         for level_k, level in levels.items():
             out = {}
@@ -47,15 +41,15 @@ class LightningModule(model.LightningModule):
     def forward(self, x):
         x_norm = self.norm(x)
         feats = self.backbone(x_norm)
-        levels = {k: head(feats) for k, head in self.levels.items()}
+        levels = self.levels(feats)
         return levels
 
     def do_step(self, batch, prefix="train"):
         x, y_dict = batch
         preds_dict = self.forward_train(x)
         losses = {}
-        for level in LEVELS:
-            for cond in CONDS:
+        for level in constants.LEVELS:
+            for cond in constants.CONDITIONS_COMPLETE:
                 k = f"{cond}_{level}"
                 preds = preds_dict[level][cond]
                 y = y_dict[level][cond]

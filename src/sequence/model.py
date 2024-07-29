@@ -47,106 +47,26 @@ class LightningModule(model.LightningModule):
         self.train_loss = losses.LumbarLoss()
         self.val_loss = losses.LumbarLoss()
 
-        projs = {}
-        transformers = {}
-        meta_projs = {}
-        for plane in constants.DESCRIPTIONS:
-            projs[plane] = get_proj(None, emb_dim, linear_dropout)
-            meta_projs[plane] = get_proj(None, emb_dim // 8, linear_dropout)
-            transformers[plane] = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
+        self.proj = get_proj(None, emb_dim, linear_dropout)
+        self.meta_proj = get_proj(None, emb_dim // 8, 0.0)
+        self.transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
 
-        self.projs = torch.nn.ModuleDict(projs)
-        self.meta_projs = torch.nn.ModuleDict(meta_projs)
-        self.levels_proj = get_proj(None, emb_dim // 8, linear_dropout)
+        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITIONS_COMPLETE})
 
-        self.transformers = torch.nn.ModuleDict(transformers)
-        self.mid_transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
-        # self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in CONDS})
-        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITION_LEVEL})
-
-    def forward_one(self, x, meta, levels, mask, plane):
-        x = x[plane]
-        mask = mask[plane]
-        meta = meta[plane]
-
-        _, _, P, _ = x.shape
-
-        meta = self.meta_projs[plane](meta)
-        meta = meta[:, :, None].repeat(1, 1, P, 1)
-
+    def forward(self, x, meta, mask) -> Dict[str, torch.Tensor]:
+        meta = self.meta_proj(meta)
         x = torch.concat([x, meta], -1)
-
-        if plane == "Axial T2":
-            levels = self.levels_proj(levels)
-            levels = levels[:, :, None].repeat(1, 1, P, 1)
-            x = torch.concat([x, levels], -1)
-
-        x = self.projs[plane](x)
-        outs = []
-        for i in range(P):
-            out = self.transformers[plane](x[:, :, i], src_key_padding_mask=mask)
-            out[mask] = -100
-            out = out.amax(1)
-            outs.append(out)
-
-        outs = torch.stack(outs, 1)
-
-        return outs
-
-    def get_out(self, plane, cond, seqs):
-        sides = ("left", "right")
-        levels = constants.LEVELS
-        outs = {}
-        match plane:
-
-            case "Axial T2":
-                for i, side in enumerate(sides):
-                    seq = seqs[:, i]
-                    for level in levels:
-                        k = f"{side}_{cond}_{level}"
-                        head = self.heads[k]
-                        outs[k] = head(seq)
-
-            case "Sagittal T1":
-                for side in sides:
-                    k = f"{side}_{cond}"
-                    for i, level in enumerate(levels):
-                        k1 = f"{k}_{level}"
-                        head = self.heads[k1]
-                        seq = seqs[:, i]
-                        outs[k1] = head(seq)
-
-            case "Sagittal T2/STIR":
-                for i, level in enumerate(levels):
-                    k = f"{cond}_{level}"
-                    head = self.heads[k]
-                    seq = seqs[:, i]
-                    outs[k] = head(seq)
-
-        return outs
-
-    def forward(self, x, meta, levels, mask) -> Dict[str, torch.Tensor]:
-        seqs = []
-        for plane in x:
-            out = self.forward_one(x, meta, levels, mask, plane)
-            seqs.append(out)
-
-        lens = [s.shape[1] for s in seqs]
-        seqs = torch.concat(seqs, 1)
-
-        seqs: torch.Tensor = self.mid_transformer(seqs)
-        seqs = seqs.split(lens, 1)
-
-        outs = {}
-        for desc_seqs, (desc, cond) in zip(seqs, PLANE2COND.items()):
-            outs.update(self.get_out(desc, cond, desc_seqs))
-
+        x = self.proj(x)
+        out = self.transformer(x, src_key_padding_mask=mask)
+        out[mask] = -100
+        out = out.amax(1)
+        outs = {k: head(out) for k, head in self.heads.items()}
         return outs
 
     def training_step(self, batch, batch_idx):
-        x, meta, levels, mask, y_true_dict = batch
-        y_pred_dict = self.forward(x, meta, levels, mask)
-        batch_size = y_pred_dict[constants.CONDITION_LEVEL[0]].shape[0]
+        x, meta, mask, y_true_dict = batch
+        y_pred_dict = self.forward(x, meta, mask)
+        batch_size = y_pred_dict[list(y_pred_dict)[0]].shape[0]
         losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y_true_dict, y_pred_dict)
 
         for k, v in losses.items():
@@ -158,8 +78,8 @@ class LightningModule(model.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, meta, levels, mask, y_true_dict = batch
-        y_pred_dict = self.forward(x, meta, levels, mask)
+        x, meta, mask, y_true_dict = batch
+        y_pred_dict = self.forward(x, meta, mask)
         self.val_loss.update(y_true_dict, y_pred_dict)
 
     def on_validation_epoch_end(self, *args, **kwargs):
