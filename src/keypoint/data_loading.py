@@ -11,7 +11,6 @@ import torch
 from albumentations.pytorch import ToTensorV2
 
 from src import constants, utils
-from src.image.data_loading import load_df
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -146,6 +145,24 @@ def get_predict_transforms(img_size):
             ToTensorV2(),
         ]
     )
+
+
+def load_df(
+    coor_path: Path = constants.COOR_PATH,
+    train_path: Path = constants.TRAIN_PATH
+) -> pd.DataFrame:
+    coor = utils.load_coor(coor_path).drop(columns=["x", "y"])
+    train = utils.load_train(train_path)
+    df = coor.merge(train, how="inner", on=["study_id", "condition_level"]).drop(columns=["condition_level"])
+    df["severity"] = df["severity"].map(lambda x: constants.SEVERITY2LABEL.get(x, -1))
+    df = df.set_index(["study_id", "series_id", "instance_number", "level", "condition"]).unstack(fill_value=-1)["severity"]
+    index = df.index
+    new_index = list(set(tuple(i[:-1]) for i in index))
+    new_index = [i + (l, ) for i in new_index for l in constants.LEVELS]
+    df = df.reindex(new_index, fill_value=-1)
+    df = df.reset_index(-1)
+    df = df.sort_index()
+    return df
 
 
 def load_this_df(

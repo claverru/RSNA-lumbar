@@ -1,1 +1,0 @@
-IMGS_PER_DESC = 10

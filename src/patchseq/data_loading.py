@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from pathlib import Path
 import albumentations as A
@@ -112,6 +112,15 @@ def collate_fn(data):
     mask = utils.pad_sequences(mask, padding_value=True)
     labels = utils.cat_dict_tensor(labels, torch.stack)
     return X, mask, labels
+
+
+def load_this_train(train_path: Path = constants.TRAIN_PATH):
+    pat = r"^(.*)_(l\d+_[l|s]\d+)$"
+    df = utils.load_train(train_path)
+    df[["condition", "level"]] = df.pop("condition_level").str.extractall(pat).reset_index()[[0, 1]]
+    df["severity"] = df["severity"].map(lambda x: constants.SEVERITY2LABEL.get(x, -1))
+    df = df.set_index(["study_id", "level", "condition"]).unstack(fill_value=-1)["severity"]
+    return df
 
 
 def load_keypoints(keypoints_path: Path = constants.KEYPOINTS_PATH) -> pd.DataFrame:

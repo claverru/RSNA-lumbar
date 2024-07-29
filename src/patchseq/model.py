@@ -4,7 +4,6 @@ import timm
 import torch
 
 from src import constants, losses, model
-from src.patchseq import constants as patchseq_constants
 
 
 def get_proj(feats, emb_dim, dropout):
