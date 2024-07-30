@@ -17,15 +17,17 @@ class Dataset(torch.utils.data.Dataset):
         self,
         train: pd.DataFrame,
         df: pd.DataFrame,
+        meta: pd.DataFrame,
         img_dir: Path,
         img_size: int,
         size_ratio: int,
         transforms: A.Compose
     ):
+        self.train = train
         self.df = df
+        self.meta = meta
         self.img_dir = img_dir
         self.train_index = train.index
-        self.train = train
         self.img_size = img_size
         self.transforms = transforms
         self.df_index = set(list(df.index))
@@ -49,27 +51,33 @@ class Dataset(torch.utils.data.Dataset):
         patch = self.transforms(image=patch)["image"]
         return patch
 
-
-    def get_patches(self, study_id, level) -> torch.Tensor:
-        chunk = self.df.loc[(study_id, level)]
+    def get_patches(self, chunk, study_id) -> torch.Tensor:
         patches = []
-        for (series_id, instance_number), gdf in chunk.groupby(["series_id", "instance_number"]):
+        for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
             img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
             img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
             for keypoint in gdf[["x", "y"]].values:
                 patch = self.get_patch(img, keypoint)
                 patches.append(patch)
-
         patches = torch.stack(patches, 0)
-
         return patches
+
+    def get_meta(self, chunk):
+        ids = list(chunk[constants.BASIC_COLS[1:]].itertuples(index=False, name=None))
+        meta = self.meta.loc[ids].values
+        keypoints = chunk[["x", "y", "level_proba"]].values
+        meta = np.concatenate([meta, keypoints], -1)
+        meta = torch.tensor(meta, dtype=torch.float)
+        return meta
 
     def __getitem__(self, index):
         study_id, level = self.train_index[index]
+        chunk = self.df.loc[(study_id, level)]
         target = self.get_target((study_id, level))
-        X = self.get_patches(study_id, level)
+        X = self.get_patches(chunk, study_id)
+        meta = self.get_meta(chunk)
         mask = torch.tensor([False] * len(X))
-        return X, mask, target
+        return X, meta, mask, target
 
 
 def get_transforms(img_size):
@@ -86,6 +94,8 @@ def get_aug_transforms(img_size):
     return A.Compose(
         [
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
+            A.VerticalFlip(p=0.5),
+            A.HorizontalFlip(p=0.5),
             A.Affine(rotate=(-30, 30), translate_percent=(-0.1, 0.1), scale=(0.8, 1.2), p=0.3),
             A.Perspective(scale=(0.05, 0.2), p=0.3),
             A.CoarseDropout(max_holes=8, max_height=8, max_width=8, min_holes=1, min_height=1, min_width=1, fill_value=0, p=0.3),
@@ -98,11 +108,12 @@ def get_aug_transforms(img_size):
 
 
 def collate_fn(data):
-    X, mask, labels = zip(*data)
+    X, meta, mask, labels = zip(*data)
     X = utils.pad_sequences(X, padding_value=0)
+    meta = utils.pad_sequences(meta, padding_value=0)
     mask = utils.pad_sequences(mask, padding_value=True)
     labels = utils.cat_dict_tensor(labels, torch.stack)
-    return X, mask, labels
+    return X, meta, mask, labels
 
 
 def load_this_train(train_path: Path = constants.TRAIN_PATH):
@@ -129,14 +140,24 @@ def load_keypoints(keypoints_path: Path = constants.KEYPOINTS_PATH) -> pd.DataFr
 
 def load_levels(levels_path: Path = constants.LEVELS_PATH):
     df = pd.read_parquet(levels_path)
-    basic_cols = ["study_id", "series_id", "instance_number"]
     probas_cols = [c for c in df.columns if c.startswith("probas")]
-    df = df[basic_cols + probas_cols]
+    df = df[constants.BASIC_COLS + probas_cols]
     df["level_id"] = df[probas_cols].values.argmax(1)
     df["level"] = df["level_id"].map(lambda x: constants.LEVELS[x])
-    df = df.sort_values(basic_cols)
+    df["level_proba"] = df[probas_cols].max(1)
+    df = df.sort_values(constants.BASIC_COLS)
     df = df.drop(columns=probas_cols + ["level_id"])
     return df
+
+
+def load_meta(meta_path: Path = constants.META_PATH):
+    meta = pd.read_csv(meta_path)
+    meta = meta.fillna(0)
+    meta = utils.normalize_meta(meta)
+    meta = meta.drop(columns=constants.BASIC_COLS[0])
+    meta = meta.set_index(constants.BASIC_COLS[1:])
+    meta = meta.sort_index()
+    return meta
 
 
 def load_df(
@@ -159,9 +180,10 @@ def load_df(
     # merge levels and filter
     df = pd.merge(df, levels, how="left", on=constants.BASIC_COLS)
     df["level"] = df.pop("level_x").where(df["level_y"].isna(), df.pop("level_y"))
+    df["level_proba"] = df["level_proba"].fillna(1)
 
     # add path
-    df = df.sort_values(["study_id", "series_id", "instance_number"])
+    df = df.sort_values(constants.BASIC_COLS)
     df = df.drop(columns=["series_description"]).set_index(["study_id", "level"]).sort_index()
     return df
 
@@ -173,6 +195,7 @@ class DataModule(L.LightningDataModule):
             desc_path: Path = constants.DESC_PATH,
             train_path: Path = constants.TRAIN_PATH,
             levels_path: Path = constants.LEVELS_PATH,
+            meta_path: Path = constants.META_PATH,
             img_size: int = 224,
             size_ratio: int = 10,
             img_dir: Path = constants.TRAIN_IMG_DIR,
@@ -191,6 +214,7 @@ class DataModule(L.LightningDataModule):
         self.img_dir = Path(img_dir)
         self.df = load_df(Path(keypoints_path), Path(levels_path), Path(desc_path))
         self.train = load_this_train(train_path)
+        self.meta = load_meta(meta_path)
         self.train_path = train_path
 
     def split(self) -> Tuple[List[int], List[int]]:
@@ -200,10 +224,10 @@ class DataModule(L.LightningDataModule):
         if stage == "fit":
             train_df, val_df = self.split()
             self.train_ds = Dataset(
-                train_df, self.df, self.img_dir, self.img_size, self.size_ratio, get_aug_transforms(self.img_size)
+                train_df, self.df, self.meta, self.img_dir, self.img_size, self.size_ratio, get_aug_transforms(self.img_size)
             )
             self.val_ds = Dataset(
-                val_df, self.df, self.img_dir, self.img_size, self.size_ratio, get_transforms(self.img_size)
+                val_df, self.df, self.meta, self.img_dir, self.img_size, self.size_ratio, get_transforms(self.img_size)
             )
 
         if stage == "test":
@@ -239,9 +263,10 @@ if __name__ == "__main__":
     config = yaml.load(open("configs/patchseq.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for X, mask, labels in dm.train_dataloader():
+    for X, meta, mask, labels in dm.train_dataloader():
         print()
         print(X.shape, X.dtype)
+        print(meta.shape, meta.dtype)
         print(mask.shape, mask.dtype)
         print({k: (v.shape, v.dtype) for k, v in labels.items()})
         print()

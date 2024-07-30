@@ -6,7 +6,7 @@ import torch
 from src import constants, losses, model
 
 
-def get_proj(in_dim, out_dim, dropout=0):
+def get_proj(in_dim, out_dim, dropout=0, norm=False):
     return torch.nn.Sequential(
         torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
         torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim)
@@ -28,6 +28,7 @@ class LightningModule(model.LightningModule):
         self.transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
         self.norm = torch.nn.InstanceNorm2d(1)
         self.proj = get_proj(None, emb_dim, linear_dropout)
+        self.meta_proj = get_proj(None, 4, linear_dropout)
 
         self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITIONS_COMPLETE})
 
@@ -38,14 +39,18 @@ class LightningModule(model.LightningModule):
         filter_x = x[true_mask]
         filter_x = self.norm(filter_x)
         filter_feats: torch.Tensor = self.backbone(filter_x)
-        filter_feats = self.proj(filter_feats)
-        feats = torch.zeros((B, T, self.D), device=filter_feats.device, dtype=filter_feats.dtype)
+        feats = torch.zeros((B, T, filter_feats.shape[-1]), device=filter_feats.device, dtype=filter_feats.dtype)
         feats[true_mask] = filter_feats
         return feats
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
-
+    def forward(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
         feats = self.extract_features(x, mask)
+
+        meta = self.meta_proj(meta)
+        feats = torch.concat([feats, meta], -1)
+
+        feats = self.proj(feats)
+
         out = self.transformer(feats, src_key_padding_mask=mask)
         out[mask] = -100
         out = out.amax(1)
@@ -53,8 +58,8 @@ class LightningModule(model.LightningModule):
         return outs
 
     def training_step(self, batch, batch_idx):
-        x, masks, y = batch
-        pred = self.forward(x, masks)
+        x, meta, mask, y = batch
+        pred = self.forward(x, meta, mask)
         batch_size = y[list(y)[0]].shape[0]
 
         losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y, pred)
@@ -68,8 +73,8 @@ class LightningModule(model.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, masks, y = batch
-        pred = self.forward(x, masks)
+        x, meta, mask, y = batch
+        pred = self.forward(x, meta, mask)
         self.val_loss.update(y, pred)
 
     def on_validation_epoch_end(self, *args, **kwargs):

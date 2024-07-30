@@ -11,7 +11,7 @@ TRAIN_PATH = ROOT / "train.csv"
 DESC_PATH = ROOT / "train_series_descriptions.csv"
 
 FEATS_PATH = ROOT / "preds/feats.parquet"
-META_PATH = ROOT / "metadata_v4_norm.csv"
+META_PATH = ROOT / "metadata.csv"
 KEYPOINTS_PATH = ROOT / "preds_keypoints.parquet"
 LEVELS_PATH = ROOT / "preds_levels.parquet"
 

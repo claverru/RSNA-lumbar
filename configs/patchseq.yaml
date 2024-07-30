@@ -6,6 +6,8 @@ model:
   class_path: src.patchseq.model.LightningModule
   init_args:
     arch: mobilenetv4_conv_small
+    eval: true
+    pretrained: True
     emb_dim: 512
     n_heads: 4
     n_layers: 4

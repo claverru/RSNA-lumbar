@@ -77,85 +77,30 @@ def get_image_path(study_id, series_id, instance_number, img_dir = constants.TRA
     return img_path
 
 
-def min_max(s):
-    return (s - s.min())/(s.max() - s.min() + 1e-6)
-
-
-def manual_min_max(s, min, max):
-    return (s - min)/(max - min + 1e-6)
-
-
-def divide_n(s, n: float):
-    return s / n
-
-
-def identity(s):
-    return s
-
-
-def norm(s):
-    return (s - s.mean()) / (s.std() + 1e-7)
+def clip_scale(x: np.ndarray, n):
+    return x.clip(-n, n) / n
 
 
 norms = {
-    "ImageOrientationPatient_0": identity,
-    "ImageOrientationPatient_1": identity,
-    "ImageOrientationPatient_2": identity,
-    "ImageOrientationPatient_3": identity,
-    "ImageOrientationPatient_4": identity,
-    "ImageOrientationPatient_5": identity,
-    "ImagePositionPatient_0": None,
-    "ImagePositionPatient_1": None,
-    "ImagePositionPatient_2": None,
-    "PixelSpacing_0": identity,
-    "PixelSpacing_1": identity,
-    "SliceThickness": None,
-    "SliceLocation": None,
-    "SpacingBetweenSlices": None,
-    "PixelRepresentation": identity,
-    "Rows": None,
-    "Columns": None,
-    "BitsStored": partial(manual_min_max, min=12, max=16),
-    "HighBit": partial(manual_min_max, min=11, max=15),
-    "WindowCenter": None,
-    "WindowWidth": None,
-    "InstanceNumber": None,
-    "RescaleSlope": None
+    "ImageOrientationPatient_0": partial(clip_scale, n=1),
+    "ImageOrientationPatient_1": partial(clip_scale, n=1),
+    "ImageOrientationPatient_2": partial(clip_scale, n=1),
+    "ImageOrientationPatient_3": partial(clip_scale, n=1),
+    "ImageOrientationPatient_4": partial(clip_scale, n=1),
+    "ImageOrientationPatient_5": partial(clip_scale, n=1),
+    "ImagePositionPatient_0": partial(clip_scale, n=1000),
+    "ImagePositionPatient_1": partial(clip_scale, n=1000),
+    "ImagePositionPatient_2": partial(clip_scale, n=1000),
+    "SliceThickness": partial(clip_scale, n=6),
+    "SpacingBetweenSlices": partial(clip_scale, n=7),
+    "SliceLocation": partial(clip_scale, n=750),
 }
 
 
 def normalize_meta(df):
-    print("Normalizing meta...")
-    cols = []
-    keys = []
     for c, f in norms.items():
-        if f is not None:
-            cols.append(f(df[c]))
-            keys.append(f"{c}_norm")
-        cols.append(df.groupby("series_id")[c].transform(norm))
-        keys.append(f"{c}_series_norm")
-        cols.append(df.groupby("study_id")[c].transform(norm))
-        keys.append(f"{c}_study_norm")
-        cols.append(df.groupby("series_id")[c].transform(min_max))
-        keys.append(f"{c}_series_minmax_norm")
-        cols.append(df.groupby("study_id")[c].transform(min_max))
-        keys.append(f"{c}_study_minmax_norm")
-    norms_df = pd.concat(cols, keys=keys, axis=1)
-    df = pd.concat([df, norms_df], axis=1)
-    return df
-
-
-def load_meta(path: Path = constants.META_PATH, normalize: bool = True):
-    print(f"Loading meta: {path}")
-    path = Path(path)
-    df = pd.read_csv(path)
-    if normalize:
-        if path.stem.endswith("_norm"):
-            print("Meta already normalized.")
-            basic_cols = ["study_id", "series_id", "instance_number"]
-            return df[basic_cols + [c for c in df.columns if c.endswith("_norm")]]
-        return normalize_meta(df)
-    return df
+        df[c] = f(df[c].values)
+    return df[constants.BASIC_COLS + list(norms)]
 
 
 def load_desc(path: Path = constants.DESC_PATH) -> pd.DataFrame:
