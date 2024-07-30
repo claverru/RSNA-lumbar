@@ -10,7 +10,6 @@ from albumentations.pytorch import ToTensorV2
 import lightning as L
 
 from src import constants, utils
-from src.sequence.data_loading import load_this_train
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -86,20 +85,12 @@ def get_transforms(img_size):
 def get_aug_transforms(img_size):
     return A.Compose(
         [
-            A.ShiftScaleRotate(
-                shift_limit=(-0.1, 0.1),
-                rotate_limit=(-10, 10),
-                interpolation=cv2.INTER_CUBIC,
-                scale_limit=0.1,
-                # border_mode=cv2.BORDER_CONSTANT,
-                # value=0,
-                p=0.5
-            ),
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            # A.HorizontalFlip(p=0.5),
-            # A.VerticalFlip(p=0.5),
-            A.MotionBlur(p=0.1),
-            A.GaussNoise(p=0.1),
+            A.Affine(rotate=(-30, 30), translate_percent=(-0.1, 0.1), scale=(0.8, 1.2), p=0.3),
+            A.Perspective(scale=(0.05, 0.2), p=0.3),
+            A.CoarseDropout(max_holes=8, max_height=8, max_width=8, min_holes=1, min_height=1, min_width=1, fill_value=0, p=0.3),
+            A.GaussNoise(var_limit=(0, 0.01), mean=0, p=0.2),
+            A.GaussianBlur(blur_limit=(3, 7), sigma_limit=(0.1, 2.0), p=0.2),
             A.Normalize((0.485, ), (0.229, )),
             ToTensorV2()
         ]

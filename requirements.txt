@@ -3,6 +3,7 @@ pandas==2.2.2
 pydicom==2.4.4
 albumentations==1.4.12
 lightning[pytorch-extra]==2.2.5
-timm==1.0.3
+timm==1.0.8
 tyro==0.8.4
 pyarrow==16.1.0
+scikit-learn==1.5.1

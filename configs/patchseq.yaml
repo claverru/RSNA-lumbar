@@ -5,8 +5,8 @@ seed_everything: 128
 model:
   class_path: src.patchseq.model.LightningModule
   init_args:
-    arch: tf_efficientnet_b0.ns_jft_in1k
-    emb_dim: 128
+    arch: mobilenetv4_conv_small
+    emb_dim: 512
     n_heads: 4
     n_layers: 4
     att_dropout: 0.1
@@ -43,7 +43,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 6
+        patience: 5
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
