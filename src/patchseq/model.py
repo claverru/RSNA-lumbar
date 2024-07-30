@@ -6,7 +6,7 @@ import torch
 from src import constants, losses, model
 
 
-def get_proj(in_dim, out_dim, dropout=0, norm=False):
+def get_proj(in_dim, out_dim, dropout=0):
     return torch.nn.Sequential(
         torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
         torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim)
@@ -31,7 +31,6 @@ class LightningModule(model.LightningModule):
         self.meta_proj = get_proj(None, 4, linear_dropout)
 
         self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITIONS_COMPLETE})
-
 
     def extract_features(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         true_mask = mask.logical_not()

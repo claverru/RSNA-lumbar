@@ -19,7 +19,6 @@ class Dataset(torch.utils.data.Dataset):
         df: pd.DataFrame,
         meta: pd.DataFrame,
         img_dir: Path,
-        img_size: int,
         size_ratio: int,
         transforms: A.Compose
     ):
@@ -28,10 +27,7 @@ class Dataset(torch.utils.data.Dataset):
         self.meta = meta
         self.img_dir = img_dir
         self.train_index = train.index
-        self.img_size = img_size
         self.transforms = transforms
-        self.df_index = set(list(df.index))
-        self.kp_cols = [c for c in df.columns if c.startswith("f")]
         self.size_ratio = size_ratio
 
     def __len__(self):
@@ -53,6 +49,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def get_patches(self, chunk, study_id) -> torch.Tensor:
         patches = []
+        chunk_ = chunk.set_index(constants.BASIC_COLS[1:])
         for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
             img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
             img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
@@ -97,8 +94,6 @@ def get_aug_transforms(img_size):
             A.VerticalFlip(p=0.5),
             A.HorizontalFlip(p=0.5),
             A.Affine(rotate=(-30, 30), translate_percent=(-0.1, 0.1), scale=(0.8, 1.2), p=0.3),
-            A.Perspective(scale=(0.05, 0.2), p=0.3),
-            A.CoarseDropout(max_holes=8, max_height=8, max_width=8, min_holes=1, min_height=1, min_width=1, fill_value=0, p=0.3),
             A.GaussNoise(var_limit=(0, 0.01), mean=0, p=0.2),
             A.GaussianBlur(blur_limit=(3, 7), sigma_limit=(0.1, 2.0), p=0.2),
             A.Normalize((0.485, ), (0.229, )),
@@ -185,6 +180,7 @@ def load_df(
     # add path
     df = df.sort_values(constants.BASIC_COLS)
     df = df.drop(columns=["series_description"]).set_index(["study_id", "level"]).sort_index()
+
     return df
 
 
@@ -224,10 +220,10 @@ class DataModule(L.LightningDataModule):
         if stage == "fit":
             train_df, val_df = self.split()
             self.train_ds = Dataset(
-                train_df, self.df, self.meta, self.img_dir, self.img_size, self.size_ratio, get_aug_transforms(self.img_size)
+                train_df, self.df, self.meta, self.img_dir, self.size_ratio, get_aug_transforms(self.img_size)
             )
             self.val_ds = Dataset(
-                val_df, self.df, self.meta, self.img_dir, self.img_size, self.size_ratio, get_transforms(self.img_size)
+                val_df, self.df, self.meta, self.img_dir, self.size_ratio, get_transforms(self.img_size)
             )
 
         if stage == "test":
