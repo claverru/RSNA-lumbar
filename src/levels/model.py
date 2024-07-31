@@ -13,12 +13,12 @@ def get_proj(in_dim, out_dim, dropout):
 
 
 class LightningModule(model.LightningModule):
-    def __init__(self, arch: str = "resnet34", emb_dim: int = 512, dropout: float = 0.2, **kwargs):
+    def __init__(self, arch: str = "resnet34", emb_dim: int = 512, dropout: float = 0.2, pretrained: bool = True, **kwargs):
         super().__init__(**kwargs)
         self.in_channels = 1
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1)
         self.acc = torchmetrics.Accuracy(task="multiclass", num_classes=len(constants.LEVELS))
-        self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=self.in_channels).eval()
+        self.backbone = timm.create_model(arch, pretrained=pretrained, num_classes=0, in_chans=self.in_channels).eval()
         n_feats = self.backbone.num_features
         self.emb = get_proj(n_feats, emb_dim, dropout)
         self.head = get_proj(emb_dim, len(constants.LEVELS), dropout)

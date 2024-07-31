@@ -39,7 +39,7 @@ def get_pool(n_feats, size):
 
 
 class LightningModule(model.LightningModule):
-    def __init__(self, arch: str = "resnet34", img_size: int = 448, **kwargs):
+    def __init__(self, arch: str = "resnet34", img_size: int = 448, pretrained: bool = True, **kwargs):
         super().__init__(**kwargs)
 
         self.in_channels = 1
@@ -47,7 +47,7 @@ class LightningModule(model.LightningModule):
         self.loss_xy = DistanceLoss(reduction="none")
         # self.level_loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
 
-        self.backbone = timm.create_model(arch, pretrained=True, num_classes=0, in_chans=self.in_channels).eval()
+        self.backbone = timm.create_model(arch, pretrained=pretrained, num_classes=0, in_chans=self.in_channels).eval()
         n_feats = self.backbone.num_features
 
         depth = img_size // self.backbone.feature_info[-1]["reduction"]
@@ -120,4 +120,4 @@ class LightningModule(model.LightningModule):
         B = x.shape[0]
         pred_xy_sagittal, pred_xy_axial = self.forward(x)
         result = torch.concat([pred_xy_sagittal.reshape(B, -1), pred_xy_axial.reshape(B, -1)], axis=1)
-        return result
+        return {"": result}

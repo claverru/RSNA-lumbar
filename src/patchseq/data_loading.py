@@ -49,7 +49,6 @@ class Dataset(torch.utils.data.Dataset):
 
     def get_patches(self, chunk, study_id) -> torch.Tensor:
         patches = []
-        chunk_ = chunk.set_index(constants.BASIC_COLS[1:])
         for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
             img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
             img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
@@ -75,6 +74,64 @@ class Dataset(torch.utils.data.Dataset):
         meta = self.get_meta(chunk)
         mask = torch.tensor([False] * len(X))
         return X, meta, mask, target
+
+
+class PredictDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        meta: pd.DataFrame,
+        img_dir: Path,
+        size_ratio: int,
+        transforms: A.Compose
+    ):
+        self.df = df
+        self.index = self.df.index.unique()
+        self.meta = meta
+        self.img_dir = img_dir
+        self.transforms = transforms
+        self.size_ratio = size_ratio
+
+    def __len__(self):
+        return len(self.index)
+
+    def get_patch(self, img, keypoint):
+        h, w = img.shape
+        half_side = max(h, w) // self.size_ratio
+        x, y = keypoint
+        x, y = (int(x * img.shape[1]), int(y * img.shape[0]))
+        xmin, ymin, xmax, ymax = x - half_side, y - half_side, x + half_side, y + half_side
+        xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, w) , min(ymax, h)
+        patch = img[ymin:ymax, xmin:xmax]
+        patch = self.transforms(image=patch)["image"]
+        return patch
+
+    def get_patches(self, chunk, study_id) -> torch.Tensor:
+        patches = []
+        for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
+            img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
+            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+            for keypoint in gdf[["x", "y"]].values:
+                patch = self.get_patch(img, keypoint)
+                patches.append(patch)
+        patches = torch.stack(patches, 0)
+        return patches
+
+    def get_meta(self, chunk):
+        ids = list(chunk[constants.BASIC_COLS[1:]].itertuples(index=False, name=None))
+        meta = self.meta.loc[ids].values
+        keypoints = chunk[["x", "y", "level_proba"]].values
+        meta = np.concatenate([meta, keypoints], -1)
+        meta = torch.tensor(meta, dtype=torch.float)
+        return meta
+
+    def __getitem__(self, index):
+        study_id, level = self.index[index]
+        chunk = self.df.loc[(study_id, level)]
+        X = self.get_patches(chunk, study_id)
+        meta = self.get_meta(chunk)
+        mask = torch.tensor([False] * len(X))
+        return X, meta, mask
 
 
 def get_transforms(img_size):
@@ -109,6 +166,14 @@ def collate_fn(data):
     mask = utils.pad_sequences(mask, padding_value=True)
     labels = utils.cat_dict_tensor(labels, torch.stack)
     return X, meta, mask, labels
+
+
+def predict_collate_fn(data):
+    X, meta, mask = zip(*data)
+    X = utils.pad_sequences(X, padding_value=0)
+    meta = utils.pad_sequences(meta, padding_value=0)
+    mask = utils.pad_sequences(mask, padding_value=True)
+    return X, meta, mask
 
 
 def load_this_train(train_path: Path = constants.TRAIN_PATH):
@@ -234,7 +299,7 @@ class DataModule(L.LightningDataModule):
             pass
 
         if stage == "predict":
-            pass
+            self.predict_ds = PredictDataset(self.df, self.meta, self.img_dir, self.size_ratio, get_transforms(self.img_size))
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -254,6 +319,15 @@ class DataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             worker_init_fn=lambda wid: np.random.seed(np.random.get_state()[1][0] + wid),
             collate_fn=collate_fn,
+        )
+
+    def predict_dataloader(self):
+        return torch.utils.data.DataLoader(
+            dataset=self.predict_ds,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            worker_init_fn=lambda wid: np.random.seed(np.random.get_state()[1][0] + wid),
+            collate_fn=predict_collate_fn,
         )
 
 

@@ -231,7 +231,7 @@ class DataModule(L.LightningDataModule):
             pass
 
         if stage == "predict":
-            img_df = utils.get_images_df()
+            img_df = utils.get_images_df(self.img_dir)
             self.predict_ds = PredictDataset(img_df, self.img_dir, get_predict_transforms(self.img_size))
 
     def train_dataloader(self):

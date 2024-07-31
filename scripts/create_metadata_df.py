@@ -26,7 +26,7 @@ def f(study_id, series_id, instance_number, img_dir = constants.TRAIN_IMG_DIR):
 
 
 def main(out_path: Path, img_dir: Path = constants.TRAIN_IMG_DIR, normalize: bool = True, fillna: bool = True):
-    imgs_df = utils.get_images_df()
+    imgs_df = utils.get_images_df(img_dir)
     a = imgs_df.apply(lambda x: f(x["study_id"], x["series_id"], x["instance_number"], img_dir=img_dir), axis=1)
     meta = pd.DataFrame.from_records(list(a))
     if fillna:

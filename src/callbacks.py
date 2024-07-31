@@ -45,12 +45,15 @@ class CustomLogger(CSVLogger):
 
 
 class Writer(BasePredictionWriter):
-    def __init__(self):
+    def __init__(self, out_dir=None, preds_name="preds.parquet"):
         super().__init__("epoch")
+        self.out_dir = out_dir
+        self.preds_name = preds_name
 
     def write_on_epoch_end(self, trainer, pl_module, predictions, batch_indices):
-        out_dir = Path(trainer.logger.log_dir)
-        out_path = out_dir / "preds.parquet"
+
+        out_dir = self.out_dir if self.out_dir is not None else Path(trainer.logger.log_dir)
+        out_path = out_dir / self.preds_name
 
         preds = utils.cat_dict_tensor(predictions)
         cols = []
