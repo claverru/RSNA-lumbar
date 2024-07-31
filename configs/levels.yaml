@@ -45,7 +45,7 @@ trainer:
         monitor: ${monitor}
         mode: ${monitor_mode}
         filename: '{epoch}_{${monitor}:.4f}'
-    - class_path: src.image.writer.Writer
+    - class_path: src.callbacks.Writer
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch

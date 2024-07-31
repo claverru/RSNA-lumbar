@@ -130,6 +130,10 @@ def load_keypoints(keypoints_path: Path = constants.KEYPOINTS_PATH) -> pd.DataFr
     df[["level", "coor"]] = df.pop("variable").str.rsplit("_", n=1, expand=True)
     df = df.set_index("level", append=True)
     df = df.pivot_table(values="value", index=df.index.names, columns="coor").reset_index()
+
+    # df["level"] = df["level"].where(~df["level"].isin(["right", "left"]), "axial")
+    # df = df.groupby(list(df.columns[~df.columns.isin(["x", "y"])]), as_index=False).mean()
+
     return df
 
 

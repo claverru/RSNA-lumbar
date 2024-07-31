@@ -53,7 +53,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
-    - class_path: src.image.writer.Writer
+    - class_path: src.callbacks.Writer
   accelerator: gpu
   precision: 16-mixed
   benchmark: True

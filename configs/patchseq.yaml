@@ -10,7 +10,7 @@ model:
     pretrained: True
     emb_dim: 512
     n_heads: 4
-    n_layers: 4
+    n_layers: 6
     att_dropout: 0.1
     linear_dropout: 0.2
     optimizer:
@@ -28,8 +28,8 @@ data:
   init_args:
     img_dir: data/train_images_clip
     batch_size: 16
-    img_size: 128
-    size_ratio: 7
+    img_size: 112
+    size_ratio: 10
 
 trainer:
   accumulate_grad_batches: 1
