@@ -17,19 +17,37 @@ class LightningModule(model.LightningModule):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss()
         self.val_loss = losses.LumbarLoss()
+        self.drop = torch.nn.Dropout1d(1 / 500)
         self.transformer = model.get_transformer(3, 3, 4, 0.1)
         self.heads = torch.nn.ModuleDict({k: get_proj(75, 3, linear_dropout) for k in constants.CONDITION_LEVEL})
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         B = x.shape[0]
         x = x.reshape(-1, 25, 3)
+        x = self.drop(x)
         x = self.transformer(x)
         x = x.reshape(B, -1)
         outs = {k: head(x) for k, head in self.heads.items()}
         return outs
 
+    def augment(self, x, y):
+        B = x.shape[0]
+        x = x.reshape(-1, 25, 3)
+        for i, k in enumerate(y):
+            idx = torch.arange(B)
+            if torch.rand(()) < 0.1:
+                i1, i2 = torch.randint(B, ()), torch.randint(B, ())
+                idx[i1], idx[i2] = idx[i2], idx[i1]
+            x[:, i] = x[:, i][idx]
+            y[k] = y[k][idx]
+        x = x.reshape(B, -1)
+        return x, y
+
     def training_step(self, batch, batch_idx):
         x, y = batch
+
+        x, y = self.augment(x, y)
+
         pred = self.forward(x)
         batch_size = y[list(y)[0]].shape[0]
 
