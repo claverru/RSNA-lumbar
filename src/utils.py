@@ -14,7 +14,9 @@ import cv2
 from src import constants
 
 
-def cat_dict_tensor(dicts: List[Dict[str, torch.Tensor]], f=lambda x: torch.concat(x, dim=0)) -> Dict[str, torch.Tensor]:
+def cat_dict_tensor(
+    dicts: List[Dict[str, torch.Tensor]], f=lambda x: torch.concat(x, dim=0)
+) -> Dict[str, torch.Tensor]:
     result = {}
     for k in dicts[0]:
         result[k] = f([d[k] for d in dicts])
@@ -41,7 +43,9 @@ def load_dcm_img(path: Path, add_channels: bool = True, size: Optional[int] = No
     return img
 
 
-def load_train(train_path: Path = constants.TRAIN_PATH, fillna = -1, per_level: bool = False, label_map=constants.SEVERITY2LABEL):
+def load_train(
+    train_path: Path = constants.TRAIN_PATH, fillna=-1, per_level: bool = False, label_map=constants.SEVERITY2LABEL
+):
     df = pd.read_csv(train_path, index_col=0)
     if label_map is not None:
         df = df.map(lambda x: constants.SEVERITY2LABEL.get(x, fillna))
@@ -61,12 +65,13 @@ def get_images_df(img_dir: Path = constants.TRAIN_IMG_DIR) -> pd.DataFrame:
             "series_id": int(img_path.parent.stem),
             "instance_number": int(img_path.stem),
         }
+
     records = [get_record(path) for path in img_dir.rglob("*.[dcm png]*")]
     sort_cols = ["study_id", "series_id", "instance_number"]
     return pd.DataFrame.from_dict(records).sort_values(sort_cols).reset_index(drop=True)
 
 
-def get_image_path(study_id, series_id, instance_number, img_dir = constants.TRAIN_IMG_DIR, suffix: str = ".dcm"):
+def get_image_path(study_id, series_id, instance_number, img_dir=constants.TRAIN_IMG_DIR, suffix: str = ".dcm"):
     img_path = img_dir / str(study_id) / str(series_id) / f"{instance_number}{suffix}"
     return img_path
 

@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 ROOT = Path("data")
@@ -32,7 +31,7 @@ CONDITIONS_COMPLETE = [
     "left_subarticular_stenosis",
     "right_neural_foraminal_narrowing",
     "right_subarticular_stenosis",
-    "spinal_canal_stenosis"
+    "spinal_canal_stenosis",
 ]
 
 CONDITION_LEVEL = [f"{c}_{l}" for c in CONDITIONS_COMPLETE for l in LEVELS]

@@ -26,7 +26,4 @@ class CustomBackboneFinetuning(BaseFinetuning):
 
     def finetune_function(self, pl_module, current_epoch, optimizer):
         if current_epoch == self._unfreeze_at_epoch:
-            self.make_trainable(
-                modules=pl_module.backbone,
-                unfreeze_backbone=self._unfreeze_bn,
-            )
+            self.make_trainable(modules=pl_module.backbone, unfreeze_backbone=self._unfreeze_bn)

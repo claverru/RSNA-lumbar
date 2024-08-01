@@ -20,9 +20,7 @@ class DistanceLoss(torch.nn.Module):
 class PositionEncoding(torch.nn.Module):
     def __init__(self, n_feats: int, depth: int = 100):
         super().__init__()
-        self.encoding = torch.nn.Parameter(
-            torch.randn(1, n_feats, depth) / 100, requires_grad=True
-        )
+        self.encoding = torch.nn.Parameter(torch.randn(1, n_feats, depth) / 100, requires_grad=True)
 
     def forward(self, x):
         return x + self.encoding
@@ -34,7 +32,7 @@ def get_pool(n_feats, size):
         torch.nn.Flatten(start_dim=2),
         PositionEncoding(n_feats, size * size),
         torch.nn.Linear(size * size, 1),
-        torch.nn.Flatten()
+        torch.nn.Flatten(),
     )
 
 
@@ -54,15 +52,9 @@ class LightningModule(model.LightningModule):
         self.norm = torch.nn.InstanceNorm2d(self.in_channels)
         self.pool = get_pool(n_feats, depth)
 
-        self.xy_sagittal = torch.nn.Sequential(
-            torch.nn.Linear(n_feats, 5 * 2),
-            torch.nn.Sigmoid()
-        )
+        self.xy_sagittal = torch.nn.Sequential(torch.nn.Linear(n_feats, 5 * 2), torch.nn.Sigmoid())
 
-        self.xy_axial = torch.nn.Sequential(
-            torch.nn.Linear(n_feats, 2 * 2),
-            torch.nn.Sigmoid()
-        )
+        self.xy_axial = torch.nn.Sequential(torch.nn.Linear(n_feats, 2 * 2), torch.nn.Sigmoid())
 
     def forward(self, x):
         B = x.shape[0]

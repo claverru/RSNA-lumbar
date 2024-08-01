@@ -1,48 +1,41 @@
 {
-	"name": "Existing Dockerfile",
-	"context": "..",
-	"dockerFile": "Dockerfile",
-	"customizations": {
+    "name": "Existing Dockerfile",
+    "context": "..",
+    "dockerFile": "Dockerfile",
+    "customizations": {
         "vscode": {
             "settings": {
                 "python.defaultInterpreterPath": "/opt/conda/bin/python",
                 "editor.rulers": [
                     120
                 ],
-                "files.trimFinalNewlines": true,
-                "files.trimTrailingWhitespace": true,
-                "files.insertFinalNewline": true,
-                "isort.args": [
-                    "--py", "37", "--profile", "black", "src"
-                ],
-                "black-formatter.args": [
-                    "-t", "py37", "-l", "120", "-S", "src"
-                ],
                 "[python]": {
-                    "editor.defaultFormatter": "ms-python.black-formatter",
                     "editor.formatOnSave": true,
                     "editor.codeActionsOnSave": {
-                        "source.organizeImports": "explicit"
+                        "source.fixAll": "explicit"
                     }
-                }
+                },
+                "ruff.organizeImports": true,
+                "ruff.fixAll": true,
+                "editor.formatOnSave": true,
+                "ruff.lineLength": 120,
+                "ruff.targetVersion": "py310"
             },
             "extensions": [
                 "ms-python.python",
-                "ms-python.isort",
-                "ms-python.black-formatter"
-            ],
-
-    }
+                "charliermarsh.ruff"
+            ]
+        }
     },
-	"runArgs": [
-		"--ipc=host",
-		"--gpus=all"
-	],
-	"mounts": [
-		"source=${localEnv:HOME}/.gitconfig,target=/home/docker_user/.gitconfig,type=bind",
-		"source=${localEnv:HOME}/.kaggle,target=/home/docker_user/.kaggle,type=bind",
-		"source=${localEnv:HOME}/.ssh,target=/home/docker_user/.ssh,type=bind"
-	],
-	"workspaceMount": "source=${localWorkspaceFolder},target=/home/docker_user/workspace,type=bind,consistency=delegated",
-	"workspaceFolder": "/home/docker_user/workspace"
+    "runArgs": [
+        "--ipc=host",
+        "--gpus=all"
+    ],
+    "mounts": [
+        "source=${localEnv:HOME}/.gitconfig,target=/home/docker_user/.gitconfig,type=bind",
+        "source=${localEnv:HOME}/.kaggle,target=/home/docker_user/.kaggle,type=bind",
+        "source=${localEnv:HOME}/.ssh,target=/home/docker_user/.ssh,type=bind"
+    ],
+    "workspaceMount": "source=${localWorkspaceFolder},target=/home/docker_user/workspace,type=bind,consistency=delegated",
+    "workspaceFolder": "/home/docker_user/workspace"
 }

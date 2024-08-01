@@ -7,18 +7,17 @@ from src import constants, utils
 
 
 class LumbarLoss(Metric):
-
     is_differentiable = True
     higher_is_better = False
 
     def __init__(self, gamma: float = 1.0, label_smoothing: float = 0.0):
         super().__init__()
         if gamma != 1.0:
-            self.loss_f = FocalLoss(gamma=gamma, ignore_index=-1, weight=torch.tensor([1., 2., 4.]))
+            self.loss_f = FocalLoss(gamma=gamma, ignore_index=-1, weight=torch.tensor([1.0, 2.0, 4.0]))
             self.spinal_loss_f = FocalLoss(gamma=gamma, ignore_index=-1, from_logits=False, reduction="none")
         else:
             self.loss_f = torch.nn.CrossEntropyLoss(
-                ignore_index=-1, weight=torch.tensor([1., 2., 4.]), label_smoothing=label_smoothing
+                ignore_index=-1, weight=torch.tensor([1.0, 2.0, 4.0]), label_smoothing=label_smoothing
             )
             self.spinal_loss_f = torch.nn.NLLLoss(ignore_index=-1, reduction="none")
         self.add_state("y_pred_dicts", default=[], dist_reduce_fx="cat")
@@ -27,30 +26,22 @@ class LumbarLoss(Metric):
     def __compute_severe_spinal_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
     ) -> float:
-        severe_spinal_true = torch.stack(
-            [y_true_dict[k] for k in y_true_dict if "spinal" in k], -1
-        ).max(-1)[0]
+        severe_spinal_true = torch.stack([y_true_dict[k] for k in y_true_dict if "spinal" in k], -1).max(-1)[0]
         is_empty_spinal_batch = (severe_spinal_true == -1).all()
 
         if is_empty_spinal_batch:
             return -1
 
         severe_spinal_preds = torch.stack(
-            [torch.softmax(y_pred_dict[k], -1)[:, -1] for k in y_true_dict if "spinal" in k],
-            -1
+            [torch.softmax(y_pred_dict[k], -1)[:, -1] for k in y_true_dict if "spinal" in k], -1
         ).max(-1)[0]
 
         severe_spinal_preds = torch.stack([1 - severe_spinal_preds, severe_spinal_preds], -1).to(self.dtype)
         weight = torch.pow(2.0, severe_spinal_true)
-        severe_spinal_binary_true = torch.where(
-            severe_spinal_true > 0, severe_spinal_true - 1, severe_spinal_true
-        )
+        severe_spinal_binary_true = torch.where(severe_spinal_true > 0, severe_spinal_true - 1, severe_spinal_true)
 
-        severe_spinal_losses = self.spinal_loss_f(
-            torch.log(severe_spinal_preds), severe_spinal_binary_true
-        ) * weight
+        severe_spinal_losses = self.spinal_loss_f(torch.log(severe_spinal_preds), severe_spinal_binary_true) * weight
         return severe_spinal_losses[severe_spinal_true != -1].mean()
-
 
     def __compute_condition_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor], condition: str

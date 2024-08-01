@@ -26,11 +26,11 @@ class CustomLogger(CSVLogger):
 
         train = df[self.train_c].dropna().reset_index(drop=True)
         val = df[self.val_c].dropna().reset_index(drop=True)
-        lr = df[self.lr_c].dropna().reset_index(drop=True).iloc[:len(val)]
+        lr = df[self.lr_c].dropna().reset_index(drop=True).iloc[: len(val)]
         fig, axes = plt.subplots(nrows=2)
         axes[0].plot(train, label=self.train_c)
         axes[0].plot(val, label=self.val_c)
-        axes[0].hlines(val.min(), 0, len(val) -1, color="orange", linestyle=":")
+        axes[0].hlines(val.min(), 0, len(val) - 1, color="orange", linestyle=":")
         axes[0].legend(loc="upper right")
         axes[1].plot(lr, color="red", linestyle="--", label=self.lr_c)
         axes[1].legend(loc="upper right")
@@ -51,7 +51,6 @@ class Writer(BasePredictionWriter):
         self.preds_name = preds_name
 
     def write_on_epoch_end(self, trainer, pl_module, predictions, batch_indices):
-
         out_dir = self.out_dir if self.out_dir is not None else Path(trainer.logger.log_dir)
         out_path = out_dir / self.preds_name
 
@@ -63,7 +62,7 @@ class Writer(BasePredictionWriter):
         data = torch.concat(list(preds.values()), 1)
 
         # NOTE: reduces significantly memory size, maybe try without it in the future
-        preds_df = pd.DataFrame(data, columns=cols)#.round(2)
+        preds_df = pd.DataFrame(data, columns=cols)  # .round(2)
         print(preds_df.head())
         print(preds_df.shape)
 

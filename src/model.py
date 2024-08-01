@@ -12,7 +12,7 @@ class LightningModule(L.LightningModule):
         lr_scheduler: LRSchedulerCallable = torch.optim.lr_scheduler.ConstantLR,
         interval: str = "epoch",
         frequency: int = 1,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.save_hyperparameters()
@@ -26,11 +26,7 @@ class LightningModule(L.LightningModule):
         lr_scheduler = self.lr_scheduler(optimizer)
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": lr_scheduler,
-                "interval": self.interval,
-                "frequency": self.frequency
-            },
+            "lr_scheduler": {"scheduler": lr_scheduler, "interval": self.interval, "frequency": self.frequency},
         }
 
 
@@ -58,8 +54,6 @@ class WarmupLR(_LRScheduler):
     def get_lr(self):
         step_num = self.last_epoch + 1
         return [
-            lr
-            * self.warmup_steps**0.5
-            * min(step_num**-0.5, step_num * self.warmup_steps**-1.5)
+            lr * self.warmup_steps**0.5 * min(step_num**-0.5, step_num * self.warmup_steps**-1.5)
             for lr in self.base_lrs
         ]

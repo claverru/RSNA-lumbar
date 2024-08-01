@@ -18,7 +18,7 @@ class Dataset(torch.utils.data.Dataset):
         df: pd.DataFrame,
         img_dir: Path = constants.TRAIN_IMG_DIR,
         train: bool = False,
-        transforms: Optional[A.Compose] = None
+        transforms: Optional[A.Compose] = None,
     ):
         self.df = df
         self.img_dir = img_dir
@@ -39,23 +39,23 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         idx = self.index2id[index]
-        study_id, series_id,  instance_number, plane = idx
+        study_id, series_id, instance_number, plane = idx
         chunk: pd.DataFrame = self.df.loc[idx]
-        img_path = utils.get_image_path(study_id, series_id,  instance_number, self.img_dir, suffix=".png")
+        img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
 
         keypoints = self.get_keypoints(chunk)
 
         transformed = self.transforms(image=img, keypoints=keypoints)
         x = transformed["image"]
-        keypoints = transformed["keypoints"] # xy
+        keypoints = transformed["keypoints"]  # xy
 
         if plane == "Axial T2":
-            keypoints_axial = sorted(keypoints, key=lambda x: x[0]) # left to right
+            keypoints_axial = sorted(keypoints, key=lambda x: x[0])  # left to right
             xy_axial = self.keypoints2xy(keypoints_axial, x.shape)
             xy_saggital = -torch.ones(5, 2)
         else:
-            keypoints_saggital = sorted(keypoints, key=lambda x: x[1]) # top to botton
+            keypoints_saggital = sorted(keypoints, key=lambda x: x[1])  # top to botton
             xy_saggital = self.keypoints2xy(keypoints_saggital, x.shape)
             xy_axial = -torch.ones(2, 2)
 
@@ -64,10 +64,7 @@ class Dataset(torch.utils.data.Dataset):
 
 class PredictDataset(torch.utils.data.Dataset):
     def __init__(
-        self,
-        df: pd.DataFrame,
-        img_dir: Path = constants.TRAIN_IMG_DIR,
-        transforms: Optional[A.Compose] = None
+        self, df: pd.DataFrame, img_dir: Path = constants.TRAIN_IMG_DIR, transforms: Optional[A.Compose] = None
     ):
         self.df = df
         self.img_dir = img_dir
@@ -91,10 +88,10 @@ def get_transforms(img_size):
     return A.Compose(
         [
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            A.Normalize((0.485, ), (0.229, )),
+            A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ],
-        keypoint_params=A.KeypointParams(format="xy", remove_invisible=False)
+        keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
     )
 
 
@@ -107,16 +104,16 @@ def get_train_transforms(img_size):
                 interpolation=cv2.INTER_CUBIC,
                 border_mode=cv2.BORDER_CONSTANT,
                 value=0,
-                p=0.5
+                p=0.5,
             ),
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
             A.HorizontalFlip(p=0.5),
             A.MotionBlur(p=0.3),
             A.GaussNoise(p=0.3),
-            A.Normalize((0.485, ), (0.229, )),
-            ToTensorV2()
+            A.Normalize((0.485,), (0.229,)),
+            ToTensorV2(),
         ],
-        keypoint_params=A.KeypointParams(format="xy", remove_invisible=False)
+        keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
     )
 
 
@@ -124,7 +121,7 @@ def get_predict_transforms(img_size):
     return A.Compose(
         [
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            A.Normalize((0.485, ), (0.229, )),
+            A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ]
     )
@@ -139,7 +136,7 @@ def load_df(coor_path: Path = constants.COOR_PATH, desc_path: Path = constants.D
     is_sagittal = ~is_axial
     size = df.groupby(constants.BASIC_COLS).transform("size")
     nunique = df.groupby(constants.BASIC_COLS)["level"].transform("nunique")
-    df = df[(is_axial & size.eq(2) & nunique.eq(1)) | ((is_sagittal & size.eq(5) & nunique.eq(5)))]
+    df = df[(is_axial & size.eq(2) & nunique.eq(1)) | (is_sagittal & size.eq(5) & nunique.eq(5))]
     df = df.drop(columns="level")
     df = df.set_index(constants.BASIC_COLS + ["series_description"])
     return df
@@ -147,16 +144,16 @@ def load_df(coor_path: Path = constants.COOR_PATH, desc_path: Path = constants.D
 
 class DataModule(L.LightningDataModule):
     def __init__(
-            self,
-            coor_path: Path = constants.COOR_PATH,
-            desc_path: Path = constants.DESC_PATH,
-            img_dir: Path = constants.TRAIN_IMG_DIR,
-            n_splits: int = 5,
-            this_split: int = 0,
-            img_size: int = 256,
-            batch_size: int = 64,
-            num_workers: int = 8,
-        ):
+        self,
+        coor_path: Path = constants.COOR_PATH,
+        desc_path: Path = constants.DESC_PATH,
+        img_dir: Path = constants.TRAIN_IMG_DIR,
+        n_splits: int = 5,
+        this_split: int = 0,
+        img_size: int = 256,
+        batch_size: int = 64,
+        num_workers: int = 8,
+    ):
         super().__init__()
         self.img_dir = Path(img_dir)
         self.n_splits = n_splits

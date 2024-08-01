@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import cv2
-from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 import albumentations as A
 import lightning as L
 import numpy as np
@@ -22,7 +21,7 @@ class Dataset(torch.utils.data.Dataset):
         df: pd.DataFrame,
         img_dir: Path = constants.TRAIN_IMG_DIR,
         train: bool = False,
-        transforms: Optional[A.Compose] = None
+        transforms: Optional[A.Compose] = None,
     ):
         self.df = df
         self.img_dir = img_dir
@@ -49,10 +48,7 @@ class Dataset(torch.utils.data.Dataset):
 
 class PredictDataset(torch.utils.data.Dataset):
     def __init__(
-        self,
-        df: pd.DataFrame,
-        img_dir: Path = constants.TRAIN_IMG_DIR,
-        transforms: Optional[A.Compose] = None
+        self, df: pd.DataFrame, img_dir: Path = constants.TRAIN_IMG_DIR, transforms: Optional[A.Compose] = None
     ):
         self.df = df
         self.img_dir = img_dir
@@ -73,7 +69,7 @@ def get_transforms(img_size):
     return A.Compose(
         [
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            A.Normalize((0.485, ), (0.229, )),
+            A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ]
     )
@@ -89,15 +85,15 @@ def get_aug_transforms(img_size):
                 interpolation=cv2.INTER_CUBIC,
                 # border_mode=cv2.BORDER_CONSTANT,
                 # value=0,
-                p=0.5
+                p=0.5,
             ),
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
             # A.HorizontalFlip(p=0.5),
             # A.VerticalFlip(p=0.5),
             A.MotionBlur(p=0.1),
             A.GaussNoise(p=0.1),
-            A.Normalize((0.485, ), (0.229, )),
-            ToTensorV2()
+            A.Normalize((0.485,), (0.229,)),
+            ToTensorV2(),
         ]
     )
 
@@ -123,17 +119,17 @@ def load_predict_df(img_dir: Path = constants.TRAIN_IMG_DIR, desc_path: Path = c
 
 class DataModule(L.LightningDataModule):
     def __init__(
-            self,
-            coor_path: Path = constants.COOR_PATH,
-            train_path: Path = constants.TRAIN_PATH,
-            desc_path: Path = constants.DESC_PATH,
-            img_dir: Path = constants.TRAIN_IMG_DIR,
-            n_splits: int = 5,
-            this_split: int = 0,
-            img_size: int = 256,
-            batch_size: int = 64,
-            num_workers: int = 8,
-        ):
+        self,
+        coor_path: Path = constants.COOR_PATH,
+        train_path: Path = constants.TRAIN_PATH,
+        desc_path: Path = constants.DESC_PATH,
+        img_dir: Path = constants.TRAIN_IMG_DIR,
+        n_splits: int = 5,
+        this_split: int = 0,
+        img_size: int = 256,
+        batch_size: int = 64,
+        num_workers: int = 8,
+    ):
         super().__init__()
         self.img_dir = Path(img_dir)
         self.n_splits = n_splits

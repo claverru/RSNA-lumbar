@@ -9,13 +9,22 @@ from src import constants, losses, model
 def get_proj(in_dim, out_dim, dropout=0):
     return torch.nn.Sequential(
         torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
-        torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim)
+        torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim),
     )
 
 
 class LightningModule(model.LightningModule):
     def __init__(
-        self, arch, emb_dim, n_heads, n_layers, att_dropout, linear_dropout, pretrained=True, eval=True, **kwargs
+        self,
+        arch,
+        emb_dim,
+        n_heads,
+        n_layers,
+        att_dropout,
+        linear_dropout,
+        pretrained=True,
+        eval=True,
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss()
@@ -30,7 +39,9 @@ class LightningModule(model.LightningModule):
         self.proj = get_proj(None, emb_dim, linear_dropout)
         self.meta_proj = get_proj(None, 4, linear_dropout)
 
-        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITIONS_COMPLETE})
+        self.heads = torch.nn.ModuleDict(
+            {k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITIONS_COMPLETE}
+        )
 
     def extract_features(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         true_mask = mask.logical_not()

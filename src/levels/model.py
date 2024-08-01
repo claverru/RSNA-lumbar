@@ -6,14 +6,13 @@ from src import constants, model
 
 
 def get_proj(in_dim, out_dim, dropout):
-    return torch.nn.Sequential(
-        torch.nn.Dropout(dropout),
-        torch.nn.Linear(in_dim, out_dim)
-    )
+    return torch.nn.Sequential(torch.nn.Dropout(dropout), torch.nn.Linear(in_dim, out_dim))
 
 
 class LightningModule(model.LightningModule):
-    def __init__(self, arch: str = "resnet34", emb_dim: int = 512, dropout: float = 0.2, pretrained: bool = True, **kwargs):
+    def __init__(
+        self, arch: str = "resnet34", emb_dim: int = 512, dropout: float = 0.2, pretrained: bool = True, **kwargs
+    ):
         super().__init__(**kwargs)
         self.in_channels = 1
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1)
