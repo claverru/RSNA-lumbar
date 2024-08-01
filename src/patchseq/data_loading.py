@@ -29,7 +29,6 @@ class Dataset(torch.utils.data.Dataset):
         self.train_index = train.index
         self.transforms = transforms
         self.size_ratio = size_ratio
-        self.patches = {}
 
     def __len__(self):
         return len(self.train_index)
@@ -38,16 +37,11 @@ class Dataset(torch.utils.data.Dataset):
         return self.train.loc[idx].apply(torch.tensor).to_dict()
 
     def get_patches(self, chunk, study_id, level) -> torch.Tensor:
-        if (study_id, level) in self.patches:
-            patches = self.patches[(study_id, level)]
-
-        else:
-            patches = []
-            for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
-                img_path = str(utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png"))
-                img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-                patches += [get_patch(img, keypoint, self.size_ratio) for keypoint in gdf[["x", "y"]].values]
-            self.patches[(study_id, level)] = patches
+        patches = []
+        for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
+            img_path = str(utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png"))
+            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+            patches += [get_patch(img, keypoint, self.img_ratio) for keypoint in gdf[["x", "y"]].values]
 
         patches = [self.transforms(image=patch)["image"] for patch in patches]
         patches = torch.stack(patches, 0)
@@ -97,23 +91,16 @@ class PredictDataset(torch.utils.data.Dataset):
         self.img_dir = img_dir
         self.transforms = transforms
         self.size_ratio = size_ratio
-        self.patches = {}
 
     def __len__(self):
         return len(self.index)
 
-
     def get_patches(self, chunk, study_id, level) -> torch.Tensor:
-        if (study_id, level) in self.patches:
-            patches = self.patches[(study_id, level)]
-
-        else:
-            patches = []
-            for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
-                img_path = str(utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png"))
-                img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-                patches += [get_patch(img, keypoint, self.img_ratio) for keypoint in gdf[["x", "y"]].values]
-            self.patches[(study_id, level)] = patches
+        patches = []
+        for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
+            img_path = str(utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png"))
+            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+            patches += [get_patch(img, keypoint, self.img_ratio) for keypoint in gdf[["x", "y"]].values]
 
         patches = [self.transforms(image=patch)["image"] for patch in patches]
         patches = torch.stack(patches, 0)
