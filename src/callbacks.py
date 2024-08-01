@@ -67,7 +67,14 @@ class Writer(BasePredictionWriter):
         print(preds_df.shape)
 
         df = trainer.predict_dataloaders.dataset.df
-
-        out_df = pd.concat([df, preds_df], axis=1)
+        try:
+            out_df = pd.concat([df, preds_df], axis=1)
+        except Exception as e:
+            print(e)
+            print("Fallback to drop last index level")
+            index = df.index.droplevel(-1).unique()
+            preds_df.index = index
+            out_df = preds_df.reset_index()
+            print(out_df.head())
 
         out_df.to_parquet(out_path, index=False)

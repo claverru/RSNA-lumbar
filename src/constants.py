@@ -13,6 +13,7 @@ FEATS_PATH = ROOT / "preds/feats.parquet"
 META_PATH = ROOT / "metadata.csv"
 KEYPOINTS_PATH = ROOT / "preds_keypoints.parquet"
 LEVELS_PATH = ROOT / "preds_levels.parquet"
+PROBAS_PATH = ROOT / "preds_probas.parquet"
 
 VAL_PREDS_NAME = "val_preds.csv"
 
@@ -34,4 +35,4 @@ CONDITIONS_COMPLETE = [
     "spinal_canal_stenosis",
 ]
 
-CONDITION_LEVEL = [f"{c}_{l}" for c in CONDITIONS_COMPLETE for l in LEVELS]
+CONDITION_LEVEL = [f"{c}_{lvl}" for c in CONDITIONS_COMPLETE for lvl in LEVELS]

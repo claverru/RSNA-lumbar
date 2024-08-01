@@ -28,14 +28,16 @@ class Dataset(torch.utils.data.Dataset):
         self.df = df
         self.meta = meta
         self.images = images
-        self.train_index = train.index
+        self.index = self.df.index.droplevel(2).unique() if train is None else train.index.unique()
         self.transforms = transforms
         self.size_ratio = size_ratio
 
     def __len__(self):
-        return len(self.train_index)
+        return len(self.index)
 
     def get_target(self, idx):
+        if self.train is None:
+            return None
         return self.train.loc[idx].apply(torch.tensor).to_dict()
 
     def get_patches(self, study_id, level) -> torch.Tensor:
@@ -58,12 +60,15 @@ class Dataset(torch.utils.data.Dataset):
         return meta
 
     def __getitem__(self, index):
-        study_id, level = self.train_index[index]
+        study_id, level = self.index[index]
         target = self.get_target((study_id, level))
         X = self.get_patches(study_id, level)
         meta = self.get_meta(study_id, level)
         mask = torch.tensor([False] * len(X))
-        return X, meta, mask, target
+        if target is not None:
+            return X, meta, mask, target
+        else:
+            return X, meta, mask
 
 
 def get_patch(img, keypoint, size_ratio):
@@ -279,8 +284,7 @@ class DataModule(L.LightningDataModule):
             pass
 
         if stage == "predict":
-            # self.predict_ds = PredictDataset(self.df, self.size_ratio, get_transforms(self.img_size))
-            pass
+            self.predict_ds = Dataset(None, self.df, self.meta, None, self.size_ratio, get_transforms(self.img_size))
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
