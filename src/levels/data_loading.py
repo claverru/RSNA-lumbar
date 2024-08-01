@@ -149,7 +149,7 @@ class DataModule(L.LightningDataModule):
         pass
 
     def split(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        return utils.split(self.df, self.n_splits, self.this_split, self.train_path)
+        return utils.split(self.df, self.n_splits, self.this_split)
 
     def setup(self, stage: str):
         if stage == "fit":

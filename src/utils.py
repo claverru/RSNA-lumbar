@@ -26,17 +26,6 @@ def load_dcm_img(path: Path, add_channels: bool = True, size: Optional[int] = No
     dicom = pydicom.read_file(path)
     img: np.ndarray = dicom.pixel_array
 
-    window_center = int(dicom.WindowCenter)
-    window_width = int(dicom.WindowWidth)
-    intercept = int(getattr(dicom, "RescaleIntercept", 0))
-    slope = int(getattr(dicom, "RescaleSlope", 1))
-
-    img = img * slope + intercept
-    # img_min = window_center - window_width // 2
-    # img_max = window_center + window_width // 2
-    # img[img < img_min] = img_min
-    # img[img > img_max] = img_max
-
     img = img.clip(np.percentile(img, 1), np.percentile(img, 99))
 
     img = img - np.min(img)
@@ -52,12 +41,17 @@ def load_dcm_img(path: Path, add_channels: bool = True, size: Optional[int] = No
     return img
 
 
-def load_train(train_path: Path = constants.TRAIN_PATH) -> pd.DataFrame:
-    train = pd.read_csv(train_path)
-    col_map = {0: "severity", "level_1": "condition_level"}
-    train = train.set_index("study_id").stack().reset_index().rename(columns=col_map)
-    train.name = "train"
-    return train
+def load_train(train_path: Path = constants.TRAIN_PATH, fillna = -1, per_level: bool = False, label_map=constants.SEVERITY2LABEL):
+    df = pd.read_csv(train_path, index_col=0)
+    if label_map is not None:
+        df = df.map(lambda x: constants.SEVERITY2LABEL.get(x, fillna))
+    if per_level:
+        df = df.melt(ignore_index=False, var_name="condition_level", value_name="severity")
+        pat = r"^(.*)_(l\d+_[l|s]\d+)$"
+        df[["condition", "level"]] = df.pop("condition_level").str.extractall(pat).droplevel(1, axis=0)
+        df = df.set_index("level", append=True)
+        df = df.pivot(columns="condition", values="severity")
+    return df
 
 
 def get_images_df(img_dir: Path = constants.TRAIN_IMG_DIR) -> pd.DataFrame:
@@ -135,17 +129,15 @@ def load_coor(coor_path: Path = constants.COOR_PATH):
     return coor
 
 
-def load_train_flatten(train_path: Path = constants.TRAIN_PATH):
-    train = pd.read_csv(train_path, index_col=0)
-    train = train.map(lambda x: constants.SEVERITY2LABEL.get(x, -1))
-    print(train.head())
-    return train
+def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    train = pd.read_csv(constants.TRAIN_PATH)
+    train = train.melt(id_vars="study_id", var_name="condition_level", value_name="severity")
 
+    coor = load_coor()
 
-def split(df: pd.DataFrame, n_splits: int, this_split: int, train_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    train = load_train(train_path)
+    train = coor.merge(train, how="inner", on=["study_id", "condition_level"])
 
-    strats = train["condition_level"] + "_" + train["severity"]
+    strats = train["condition_level"] + "_" + train["severity"].fillna("Normal/Mild")
     groups = train["study_id"]
 
     skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True)

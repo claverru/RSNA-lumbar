@@ -29,6 +29,7 @@ class Dataset(torch.utils.data.Dataset):
         self.train_index = train.index
         self.transforms = transforms
         self.size_ratio = size_ratio
+        self.patches = {}
 
     def __len__(self):
         return len(self.train_index)
@@ -36,25 +37,19 @@ class Dataset(torch.utils.data.Dataset):
     def get_target(self, idx):
         return self.train.loc[idx].apply(torch.tensor).to_dict()
 
-    def get_patch(self, img, keypoint):
-        h, w = img.shape
-        half_side = max(h, w) // self.size_ratio
-        x, y = keypoint
-        x, y = (int(x * img.shape[1]), int(y * img.shape[0]))
-        xmin, ymin, xmax, ymax = x - half_side, y - half_side, x + half_side, y + half_side
-        xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, w) , min(ymax, h)
-        patch = img[ymin:ymax, xmin:xmax]
-        patch = self.transforms(image=patch)["image"]
-        return patch
+    def get_patches(self, chunk, study_id, level) -> torch.Tensor:
+        if (study_id, level) in self.patches:
+            patches = self.patches[(study_id, level)]
 
-    def get_patches(self, chunk, study_id) -> torch.Tensor:
-        patches = []
-        for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
-            img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
-            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-            for keypoint in gdf[["x", "y"]].values:
-                patch = self.get_patch(img, keypoint)
-                patches.append(patch)
+        else:
+            patches = []
+            for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
+                img_path = str(utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png"))
+                img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+                patches += [get_patch(img, keypoint, self.size_ratio) for keypoint in gdf[["x", "y"]].values]
+            self.patches[(study_id, level)] = patches
+
+        patches = [self.transforms(image=patch)["image"] for patch in patches]
         patches = torch.stack(patches, 0)
         return patches
 
@@ -70,10 +65,21 @@ class Dataset(torch.utils.data.Dataset):
         study_id, level = self.train_index[index]
         chunk = self.df.loc[(study_id, level)]
         target = self.get_target((study_id, level))
-        X = self.get_patches(chunk, study_id)
+        X = self.get_patches(chunk, study_id, level)
         meta = self.get_meta(chunk)
         mask = torch.tensor([False] * len(X))
         return X, meta, mask, target
+
+
+def get_patch(img, keypoint, size_ratio):
+    h, w = img.shape
+    half_side = max(h, w) // size_ratio
+    x, y = keypoint
+    x, y = (int(x * img.shape[1]), int(y * img.shape[0]))
+    xmin, ymin, xmax, ymax = x - half_side, y - half_side, x + half_side, y + half_side
+    xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, w) , min(ymax, h)
+    patch = img[ymin:ymax, xmin:xmax]
+    return patch
 
 
 class PredictDataset(torch.utils.data.Dataset):
@@ -91,29 +97,25 @@ class PredictDataset(torch.utils.data.Dataset):
         self.img_dir = img_dir
         self.transforms = transforms
         self.size_ratio = size_ratio
+        self.patches = {}
 
     def __len__(self):
         return len(self.index)
 
-    def get_patch(self, img, keypoint):
-        h, w = img.shape
-        half_side = max(h, w) // self.size_ratio
-        x, y = keypoint
-        x, y = (int(x * img.shape[1]), int(y * img.shape[0]))
-        xmin, ymin, xmax, ymax = x - half_side, y - half_side, x + half_side, y + half_side
-        xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, w) , min(ymax, h)
-        patch = img[ymin:ymax, xmin:xmax]
-        patch = self.transforms(image=patch)["image"]
-        return patch
 
-    def get_patches(self, chunk, study_id) -> torch.Tensor:
-        patches = []
-        for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
-            img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
-            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-            for keypoint in gdf[["x", "y"]].values:
-                patch = self.get_patch(img, keypoint)
-                patches.append(patch)
+    def get_patches(self, chunk, study_id, level) -> torch.Tensor:
+        if (study_id, level) in self.patches:
+            patches = self.patches[(study_id, level)]
+
+        else:
+            patches = []
+            for (series_id, instance_number), gdf in chunk.groupby(constants.BASIC_COLS[1:]):
+                img_path = str(utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png"))
+                img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+                patches += [get_patch(img, keypoint, self.img_ratio) for keypoint in gdf[["x", "y"]].values]
+            self.patches[(study_id, level)] = patches
+
+        patches = [self.transforms(image=patch)["image"] for patch in patches]
         patches = torch.stack(patches, 0)
         return patches
 
@@ -128,7 +130,7 @@ class PredictDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         study_id, level = self.index[index]
         chunk = self.df.loc[(study_id, level)]
-        X = self.get_patches(chunk, study_id)
+        X = self.get_patches(chunk, study_id, level)
         meta = self.get_meta(chunk)
         mask = torch.tensor([False] * len(X))
         return X, meta, mask
@@ -174,15 +176,6 @@ def predict_collate_fn(data):
     meta = utils.pad_sequences(meta, padding_value=0)
     mask = utils.pad_sequences(mask, padding_value=True)
     return X, meta, mask
-
-
-def load_this_train(train_path: Path = constants.TRAIN_PATH):
-    pat = r"^(.*)_(l\d+_[l|s]\d+)$"
-    df = utils.load_train(train_path)
-    df[["condition", "level"]] = df.pop("condition_level").str.extractall(pat).reset_index()[[0, 1]]
-    df["severity"] = df["severity"].map(lambda x: constants.SEVERITY2LABEL.get(x, -1))
-    df = df.set_index(["study_id", "level", "condition"]).unstack(fill_value=-1)["severity"]
-    return df
 
 
 def load_keypoints(keypoints_path: Path = constants.KEYPOINTS_PATH) -> pd.DataFrame:
@@ -278,12 +271,13 @@ class DataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.img_dir = Path(img_dir)
         self.df = load_df(Path(keypoints_path), Path(levels_path), Path(desc_path))
-        self.train = load_this_train(train_path)
+        self.train = utils.load_train(train_path, per_level=True)
         self.meta = load_meta(meta_path)
+
         self.train_path = train_path
 
     def split(self) -> Tuple[List[int], List[int]]:
-        return utils.split(self.train, self.n_splits, self.this_split, self.train_path)
+        return utils.split(self.train, self.n_splits, self.this_split)
 
     def setup(self, stage: str):
         if stage == "fit":

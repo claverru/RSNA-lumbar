@@ -3,7 +3,7 @@ monitor_mode: min
 seed_everything: 128
 
 model:
-  class_path: src.keypoint.model.LightningModule
+  class_path: src.keypoints.model.LightningModule
   init_args:
     arch: densenet201
     img_size: 448
@@ -23,7 +23,7 @@ model:
     interval: step
 
 data:
-  class_path: src.keypoint.data_loading.DataModule
+  class_path: src.keypoints.data_loading.DataModule
   init_args:
     img_size: 448
     batch_size: 32

@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import cv2
-from sklearn.model_selection import StratifiedGroupKFold
 import albumentations as A
 import lightning as L
 import numpy as np
@@ -30,14 +29,8 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.index2id)
 
-    def get_levels(self, chunk: pd.DataFrame):
-        return chunk["level"].values
-
     def get_keypoints(self, chunk: pd.DataFrame):
         return chunk[["x", "y"]].values
-
-    def get_plane_str(self, chunk: pd.DataFrame):
-        return chunk["series_description"].iloc[0]
 
     def keypoints2xy(self, keypoints, shape):
         C, H, W = shape
@@ -46,13 +39,11 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         idx = self.index2id[index]
+        study_id, series_id,  instance_number, plane = idx
         chunk: pd.DataFrame = self.df.loc[idx]
-        img_path = utils.get_image_path(idx[0], idx[1], idx[2], self.img_dir, suffix=".png")
+        img_path = utils.get_image_path(study_id, series_id,  instance_number, self.img_dir, suffix=".png")
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
 
-        plane = self.get_plane_str(chunk)
-
-        levels = self.get_levels(chunk)
         keypoints = self.get_keypoints(chunk)
 
         transformed = self.transforms(image=img, keypoints=keypoints)
@@ -62,16 +53,13 @@ class Dataset(torch.utils.data.Dataset):
         if plane == "Axial T2":
             keypoints_axial = sorted(keypoints, key=lambda x: x[0]) # left to right
             xy_axial = self.keypoints2xy(keypoints_axial, x.shape)
-            xy_saggital = torch.zeros(5, 2)
-            level = torch.tensor(constants.LEVELS.index(levels[0]))
+            xy_saggital = -torch.ones(5, 2)
         else:
             keypoints_saggital = sorted(keypoints, key=lambda x: x[1]) # top to botton
             xy_saggital = self.keypoints2xy(keypoints_saggital, x.shape)
-            xy_axial = torch.zeros(2, 2)
-            level = torch.tensor(-1)
+            xy_axial = -torch.ones(2, 2)
 
-        return x, xy_saggital, xy_axial, level
-
+        return x, xy_saggital, xy_axial
 
 
 class PredictDataset(torch.utils.data.Dataset):
@@ -93,12 +81,9 @@ class PredictDataset(torch.utils.data.Dataset):
         img_path = utils.get_image_path(
             chunk["study_id"], chunk["series_id"], chunk["instance_number"], self.img_dir, suffix=".png"
         )
-
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-
         transformed = self.transforms(image=img)
         x = transformed["image"]
-
         return x
 
 
@@ -126,15 +111,13 @@ def get_train_transforms(img_size):
             ),
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
             A.HorizontalFlip(p=0.5),
-            A.RandomBrightnessContrast(p=0.1),
-            A.MotionBlur(p=0.1),
-            A.GaussNoise(p=0.1),
+            A.MotionBlur(p=0.3),
+            A.GaussNoise(p=0.3),
             A.Normalize((0.485, ), (0.229, )),
             ToTensorV2()
         ],
         keypoint_params=A.KeypointParams(format="xy", remove_invisible=False)
     )
-
 
 
 def get_predict_transforms(img_size):
@@ -147,51 +130,25 @@ def get_predict_transforms(img_size):
     )
 
 
-def load_df(
-    coor_path: Path = constants.COOR_PATH,
-    train_path: Path = constants.TRAIN_PATH
-) -> pd.DataFrame:
-    coor = utils.load_coor(coor_path).drop(columns=["x", "y"])
-    train = utils.load_train(train_path)
-    df = coor.merge(train, how="inner", on=["study_id", "condition_level"]).drop(columns=["condition_level"])
-    df["severity"] = df["severity"].map(lambda x: constants.SEVERITY2LABEL.get(x, -1))
-    df = df.set_index(["study_id", "series_id", "instance_number", "level", "condition"]).unstack(fill_value=-1)["severity"]
-    index = df.index
-    new_index = list(set(tuple(i[:-1]) for i in index))
-    new_index = [i + (l, ) for i in new_index for l in constants.LEVELS]
-    df = df.reindex(new_index, fill_value=-1)
-    df = df.reset_index(-1)
-    df = df.sort_index()
+def load_df(coor_path: Path = constants.COOR_PATH, desc_path: Path = constants.DESC_PATH) -> pd.DataFrame:
+    df = utils.load_coor(coor_path)
+    desc = utils.load_desc(desc_path)
+    df = df[constants.BASIC_COLS + ["x", "y", "level"]]
+    df = df.merge(desc, how="inner", on=constants.BASIC_COLS[:2])
+    is_axial = df["series_description"] == "Axial T2"
+    is_sagittal = ~is_axial
+    size = df.groupby(constants.BASIC_COLS).transform("size")
+    nunique = df.groupby(constants.BASIC_COLS)["level"].transform("nunique")
+    df = df[(is_axial & size.eq(2) & nunique.eq(1)) | ((is_sagittal & size.eq(5) & nunique.eq(5)))]
+    df = df.drop(columns="level")
+    df = df.set_index(constants.BASIC_COLS + ["series_description"])
     return df
-
-
-def load_this_df(
-    coor_path: Path = constants.COOR_PATH,
-    train_path: Path = constants.TRAIN_PATH,
-    desc_path: Path = constants.DESC_PATH
-) -> pd.DataFrame:
-    df = load_df(coor_path, train_path, desc_path)
-
-    df["level"] = df["condition_level"].apply(lambda x: "_".join(x.split("_")[-2:]))
-
-    size = df.groupby(df.index)["z"].transform(len)
-
-    axial = df[(df.series_description == "Axial T2") & (size == 2)]
-    axial = axial[axial.groupby(axial.index)["level"].transform(lambda x: x.nunique() == 1)]
-
-    sagittal = df[(df.series_description != "Axial T2") & (size == 5)]
-    sagittal = sagittal[sagittal.groupby(sagittal.index)["level"].transform(lambda x: x.nunique() == 5)]
-
-    df = pd.concat([axial, sagittal], axis=0)
-
-    return df.sort_index()
 
 
 class DataModule(L.LightningDataModule):
     def __init__(
             self,
             coor_path: Path = constants.COOR_PATH,
-            train_path: Path = constants.TRAIN_PATH,
             desc_path: Path = constants.DESC_PATH,
             img_dir: Path = constants.TRAIN_IMG_DIR,
             n_splits: int = 5,
@@ -207,19 +164,13 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_size = img_size
-        self.df = load_this_df(coor_path, train_path, desc_path)
+        self.df = load_df(coor_path, desc_path)
 
     def prepare_data(self):
         pass
 
     def split(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        strats = self.df["condition_level"] + "_" + self.df["severity"]
-        groups = self.df.reset_index()["study_id"]
-        skf = StratifiedGroupKFold(n_splits=self.n_splits, shuffle=True)
-        for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
-            if i == self.this_split:
-                break
-        return self.df.iloc[train_ids], self.df.iloc[val_ids]
+        return utils.split(self.df, self.n_splits, self.this_split)
 
     def setup(self, stage: str):
         if stage == "fit":

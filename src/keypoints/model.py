@@ -44,8 +44,7 @@ class LightningModule(model.LightningModule):
 
         self.in_channels = 1
 
-        self.loss_xy = DistanceLoss(reduction="none")
-        # self.level_loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
+        self.loss_xy = DistanceLoss(reduction="mean")
 
         self.backbone = timm.create_model(arch, pretrained=pretrained, num_classes=0, in_chans=self.in_channels).eval()
         n_feats = self.backbone.num_features
@@ -65,8 +64,6 @@ class LightningModule(model.LightningModule):
             torch.nn.Sigmoid()
         )
 
-        # self.level = torch.nn.Linear(n_feats, 5)
-
     def forward(self, x):
         B = x.shape[0]
         norm_x = self.norm(x)
@@ -76,35 +73,28 @@ class LightningModule(model.LightningModule):
         xy_sagittal = self.xy_sagittal(flatten_feats).reshape(B, -1, 2)
         xy_axial = self.xy_axial(flatten_feats).reshape(B, -1, 2)
 
-        # level = self.level(flatten_feats)
-        return xy_sagittal, xy_axial# , level
+        return xy_sagittal, xy_axial
 
-    def do_xy_loss(self, pred, target, mask):
+    def do_xy_loss(self, pred, target):
         loss = 0.0
+        mask = ((target >= 0) & (target <= 1)).all(-1)
         if mask.any():
             target = target[mask]
             pred = pred[mask]
             loss = self.loss_xy(pred, target)
-            is_valid = ((target >= 0) & (target <= 1)).all(-1)
-            loss = loss[is_valid].mean()
         return loss
 
     def do_step(self, batch, prefix="train"):
-        x, xy_sagittal, xy_axial, level = batch
+        x, xy_sagittal, xy_axial = batch
         pred_xy_sagittal, pred_xy_axial = self.forward(x)
 
-        is_sagittal = level == -1
-        is_axial = level != -1
+        xy_sagittal_loss = self.do_xy_loss(pred_xy_sagittal, xy_sagittal)
+        xy_axial_loss = self.do_xy_loss(pred_xy_axial, xy_axial)
 
-        xy_sagittal_loss = self.do_xy_loss(pred_xy_sagittal, xy_sagittal, is_sagittal)
-        xy_axial_loss = self.do_xy_loss(pred_xy_axial, xy_axial, is_axial)
-        # level_loss = self.level_loss(pred_level, level)
-
-        loss = xy_sagittal_loss + xy_axial_loss#  + level_loss
+        loss = xy_sagittal_loss + xy_axial_loss
 
         self.log(prefix + "_sag_loss", xy_sagittal_loss, on_epoch=True, prog_bar=True, on_step=False)
         self.log(prefix + "_ax_loss", xy_axial_loss, on_epoch=True, prog_bar=True, on_step=False)
-        # self.log(prefix + "_lvl_loss", level_loss, on_epoch=True, prog_bar=True, on_step=False)
         self.log(prefix + "_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
 
         return loss
