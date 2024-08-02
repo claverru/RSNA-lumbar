@@ -28,7 +28,7 @@ class LightningModule(model.LightningModule):
     ):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss()
-        self.val_loss = losses.LumbarLoss()
+        self.val_loss = losses.LumbarMetric()
         self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained)
         if eval:
             self.backbone = self.backbone.eval()
@@ -72,7 +72,7 @@ class LightningModule(model.LightningModule):
         pred = self.forward(x, meta, mask)
         batch_size = y[list(y)[0]].shape[0]
 
-        losses: Dict[str, torch.Tensor] = self.train_loss.jit_loss(y, pred)
+        losses: Dict[str, torch.Tensor] = self.train_loss(y, pred)
 
         for k, v in losses.items():
             self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False, batch_size=batch_size)
