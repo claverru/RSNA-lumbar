@@ -3,7 +3,7 @@ monitor_mode: min
 seed_everything: 128
 
 model:
-  class_path: dev.probas.model.LightningModule
+  class_path: src.probas.model.LightningModule
   init_args:
     linear_dropout: 0.5
     optimizer:
@@ -22,7 +22,7 @@ model:
     interval: step
 
 data:
-  class_path: dev.probas.data_loading.DataModule
+  class_path: src.probas.data_loading.DataModule
   init_args:
     batch_size: 32
 
@@ -50,6 +50,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
+    - class_path: src.callbacks.Writer
     # - class_path: src.finetuning.CustomBackboneFinetuning
     #   init_args:
     #     unfreeze_at_epoch: 5

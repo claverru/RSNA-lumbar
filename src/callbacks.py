@@ -61,20 +61,21 @@ class Writer(BasePredictionWriter):
                 cols.append(f"{k}_f{i}")
         data = torch.concat(list(preds.values()), 1)
 
-        # NOTE: reduces significantly memory size, maybe try without it in the future
-        preds_df = pd.DataFrame(data, columns=cols)  # .round(2)
-        print(preds_df.head())
-        print(preds_df.shape)
-
         df = trainer.predict_dataloaders.dataset.df
+
         try:
+            preds_df = pd.DataFrame(data=data, columns=cols)
             out_df = pd.concat([df, preds_df], axis=1)
         except Exception as e:
             print(e)
-            print("Fallback to drop last index level")
-            index = df.index.droplevel(-1).unique()
-            preds_df.index = index
-            out_df = preds_df.reset_index()
-            print(out_df.head())
+            try:
+                out_df = pd.DataFrame(index=df.index, data=data, columns=cols).reset_index()
+            except Exception as e:
+                print(e)
+                print("Fallback to drop last index level")
+                index = df.index.droplevel(-1).unique()
+                out_df = pd.DataFrame(index=index, data=data, columns=cols).reset_index()
 
-        out_df.to_parquet(out_path, index=False)
+        print(out_df.head())
+
+        out_df.to_parquet(out_path)

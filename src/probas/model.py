@@ -76,6 +76,6 @@ class LightningModule(model.LightningModule):
         self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        x, meta, mask = batch
-        pred = self.forward(x, meta, mask)
+        x = batch
+        pred = self.forward(x)
         return pred

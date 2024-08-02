@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from pathlib import Path
 import numpy as np
@@ -12,17 +12,19 @@ from src import constants, utils
 class Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        train: pd.DataFrame,
+        train: Optional[pd.DataFrame],
         df: pd.DataFrame,
     ):
         self.train = train
         self.df = df
-        self.index = train.index
+        self.index = train.index if train is not None else df.index
 
     def __len__(self):
         return len(self.index)
 
     def get_target(self, study_id):
+        if self.train is None:
+            return None
         return self.train.loc[study_id].apply(torch.tensor).to_dict()
 
     def get_x(self, study_id):
@@ -32,7 +34,10 @@ class Dataset(torch.utils.data.Dataset):
         study_id = self.index[index]
         x = self.get_x(study_id)
         target = self.get_target(study_id)
-        return x, target
+        if target is not None:
+            return x, target
+        else:
+            return x
 
 
 def load_df(probas_path: Path = constants.PROBAS_PATH):
@@ -75,8 +80,7 @@ class DataModule(L.LightningDataModule):
             pass
 
         if stage == "predict":
-            pass
-            # self.predict_ds = PredictDataset(self.df)
+            self.predict_ds = Dataset(None, self.df)
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(

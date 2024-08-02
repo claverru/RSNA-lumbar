@@ -26,7 +26,7 @@ model:
 data:
   class_path: src.patchseq.data_loading.DataModule
   init_args:
-    img_dir: data/train_images_clip
+    img_dir: mount/train_images_clip
     batch_size: 16
     img_size: 112
     size_ratio: 10
@@ -55,6 +55,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
+    - class_path: src.callbacks.Writer
     # - class_path: src.finetuning.CustomBackboneFinetuning
     #   init_args:
     #     unfreeze_at_epoch: 5
