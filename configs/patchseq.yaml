@@ -5,7 +5,7 @@ seed_everything: 128
 model:
   class_path: src.patchseq.model.LightningModule
   init_args:
-    arch: mobilenetv4_conv_small
+    arch: mobilenetv4_conv_large
     eval: true
     pretrained: True
     emb_dim: 512
