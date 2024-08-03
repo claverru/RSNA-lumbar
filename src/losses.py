@@ -32,7 +32,7 @@ class LumbarLoss(torch.nn.Module):
             self.any_severe_spinal_loss(
                 severe_spinal_binary_preds[is_valid].to(torch.float), severe_spinal_binary_true[is_valid]
             )
-            * weight
+            * weight[is_valid]
         )
 
         return severe_spinal_losses.mean()
