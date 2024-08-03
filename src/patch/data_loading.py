@@ -72,8 +72,9 @@ def get_aug_transforms(img_size):
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
             A.VerticalFlip(p=0.5),
             A.HorizontalFlip(p=0.5),
-            A.Affine(rotate=(-30, 30), translate_percent=(-0.1, 0.1), scale=(0.8, 1.2), p=0.3),
-            A.GaussNoise(var_limit=(0, 0.01), mean=0, p=0.2),
+            A.Affine(rotate=(-30, 30), shear=(-25, 25), translate_percent=(-0.25, 0.25), scale=(0.8, 1.2), p=0.3),
+            A.Perspective(0.1),
+            A.GaussNoise(var_limit=(0, 0.02), mean=0, p=0.2),
             A.GaussianBlur(blur_limit=(3, 7), sigma_limit=(0.1, 2.0), p=0.2),
             A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
@@ -100,21 +101,26 @@ def load_df(
     train_path: Path = constants.TRAIN_PATH,
 ):
     keypoints = load_keypoints(keypoints_path)
+
     coor = utils.load_coor(coor_path).drop(columns=["level", "x", "y"])
+
     train = utils.load_train(train_path)
+    train = train.melt(ignore_index=False, var_name="condition_level", value_name="severity").reset_index()
 
     df = coor.merge(keypoints, how="inner", on=constants.BASIC_COLS + ["type"])
-
-    train = train.melt(ignore_index=False, var_name="condition_level", value_name="severity").reset_index()
     df = df.merge(train, how="inner", on=["study_id", "condition_level"])
     df = df[constants.BASIC_COLS + ["x", "y", "condition", "severity", "type"]]
 
-    train = (
-        df.pivot(index=constants.BASIC_COLS + ["type"], columns="condition", values="severity").fillna(-1).astype(int)
+    # Remove laterality
+    df["condition"] = df["condition"].str.extract("(" + "|".join(constants.CONDITIONS) + ")")[0]
+    df = df.groupby(constants.BASIC_COLS + ["condition", "type"], as_index=False).agg(
+        {"x": "mean", "y": "mean", "severity": "max"}
     )
+
+    y = df.pivot(index=constants.BASIC_COLS + ["type"], columns="condition", values="severity").fillna(-1).astype(int)
     x = df[constants.BASIC_COLS + ["type", "x", "y"]].drop_duplicates().set_index(constants.BASIC_COLS + ["type"])
 
-    return train, x
+    return x, y
 
 
 class DataModule(L.LightningDataModule):
@@ -139,7 +145,7 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_dir = Path(img_dir)
-        self.train, self.df = load_df(Path(keypoints_path), Path(coor_path), Path(train_path))
+        self.df, self.train = load_df(Path(keypoints_path), Path(coor_path), Path(train_path))
         self.train_path = train_path
 
     def split(self) -> Tuple[List[int], List[int]]:

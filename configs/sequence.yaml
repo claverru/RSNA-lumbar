@@ -3,11 +3,11 @@ monitor_mode: min
 seed_everything: 128
 
 model:
-  class_path: src.patchseq.model.LightningModule
+  class_path: src.sequence.model.LightningModule
   init_args:
     arch: mobilenetv4_conv_large
-    eval: true
-    pretrained: True
+    eval: false
+    pretrained: lightning_logs/version_1/checkpoints/epoch=7_val_loss=0.4124.ckpt
     emb_dim: 512
     n_heads: 4
     n_layers: 6
@@ -20,11 +20,12 @@ model:
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
-        warmup_steps: 493
+        # warmup_steps: 493
+        warmup_steps: 250
     interval: step
 
 data:
-  class_path: src.patchseq.data_loading.DataModule
+  class_path: src.sequence.data_loading.DataModule
   init_args:
     img_dir: mount/train_images_clip
     batch_size: 16
@@ -40,7 +41,6 @@ trainer:
       name: ""
       train_c: train_loss_epoch
       val_c: val_loss
-  enable_checkpointing: true
   callbacks:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
@@ -52,14 +52,15 @@ trainer:
         monitor: ${monitor}
         mode: ${monitor_mode}
         filename: '{epoch}_{${monitor}:.4f}'
+        save_weights_only: True
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
     - class_path: src.callbacks.Writer
-    # - class_path: src.finetuning.CustomBackboneFinetuning
-    #   init_args:
-    #     unfreeze_at_epoch: 5
-    #     unfreeze_bn: True
+    - class_path: src.finetuning.CustomBackboneFinetuning
+      init_args:
+        unfreeze_at_epoch: 5
+        unfreeze_bn: True
   accelerator: gpu
   precision: 16-mixed
   max_epochs: 10000

@@ -25,9 +25,7 @@ class LightningModule(model.LightningModule):
 
         num_features = 1280 if "mobilenetv4" in arch else self.backbone.num_features
 
-        self.heads = torch.nn.ModuleDict(
-            {k: get_proj(num_features, 3, linear_dropout) for k in constants.CONDITIONS_COMPLETE}
-        )
+        self.heads = torch.nn.ModuleDict({k: get_proj(num_features, 3, linear_dropout) for k in constants.CONDITIONS})
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         x = self.norm(x)
