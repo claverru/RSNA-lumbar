@@ -15,7 +15,7 @@ model:
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
-        warmup_steps: 682
+        warmup_steps: 342
     interval: step
 
 data:
@@ -24,6 +24,7 @@ data:
     img_size: 380
     batch_size: 32
     img_dir: data/train_images_clip
+    num_workers: 6
 
 trainer:
   logger:
@@ -38,7 +39,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 3
+        patience: 5
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:

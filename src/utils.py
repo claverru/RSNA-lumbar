@@ -156,4 +156,6 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
     train_df = df.iloc[study_id.isin(train_study_ids).values]
     val_df = df.iloc[study_id.isin(val_study_ids).values]
 
+    print(f"Train DataFrame has {len(train_df)} values and val DataFrame has {len(val_df)} values")
+
     return train_df, val_df

@@ -168,3 +168,4 @@ lightning_logs/
 trash/
 checkpoints/
 models/
+mount/

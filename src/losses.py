@@ -82,3 +82,28 @@ class LumbarMetric(Metric):
     def update(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]):
         self.y_pred_dicts.append(y_pred_dict)
         self.y_true_dicts.append(y_true_dict)
+
+
+class FocalLoss(torch.nn.Module):
+    def __init__(self, gamma, weight=None, ignore_index=-100, reduction="mean", from_logits=True):
+        super().__init__()
+        self.gamma = gamma
+        self.ignore_index = ignore_index
+        self.reduction = reduction
+        self.from_logits = from_logits
+        if from_logits:
+            self.cross = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=self.ignore_index, reduction="none")
+        else:
+            self.cross = torch.nn.NLLLoss(weight=weight, ignore_index=self.ignore_index, reduction="none")
+
+    def forward(self, input_: torch.Tensor, target: torch.Tensor):
+        cross_entropy = self.cross(input_, target)
+        if self.from_logits:
+            input_ = input_.softmax(1)
+
+        target = target * (target != self.ignore_index).long()
+        input_prob = torch.gather(input_, 1, target.unsqueeze(1))
+        loss = torch.pow(1 - input_prob, self.gamma) * cross_entropy
+        if self.reduction == "mean":
+            return loss.mean()
+        return loss

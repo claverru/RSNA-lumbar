@@ -17,6 +17,7 @@ class LightningModule(model.LightningModule):
         self.in_channels = 1
         self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1)
         self.acc = torchmetrics.Accuracy(task="multiclass", num_classes=len(constants.LEVELS))
+        self.acc2 = torchmetrics.Accuracy(task="multiclass", num_classes=len(constants.LEVELS), top_k=2)
         self.backbone = timm.create_model(arch, pretrained=pretrained, num_classes=0, in_chans=self.in_channels).eval()
         n_feats = self.backbone.num_features
         self.emb = get_proj(n_feats, emb_dim, dropout)
@@ -35,8 +36,10 @@ class LightningModule(model.LightningModule):
         pred, _ = self.forward(x)
         loss = self.loss_f(pred, y)
         acc = self.acc(pred, y)
+        acc2 = self.acc2(pred, y)
         self.log(f"{prefix}_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
         self.log(f"{prefix}_acc", acc, on_epoch=True, prog_bar=True, on_step=False)
+        self.log(f"{prefix}_acc2", acc2, on_epoch=True, prog_bar=True, on_step=False)
         return loss
 
     def training_step(self, batch, batch_idx):

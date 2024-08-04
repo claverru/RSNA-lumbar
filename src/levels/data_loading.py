@@ -78,20 +78,13 @@ def get_transforms(img_size):
 def get_aug_transforms(img_size):
     return A.Compose(
         [
-            A.ShiftScaleRotate(
-                shift_limit=(-0.1, 0.1),
-                rotate_limit=(-15, 15),
-                scale_limit=0.1,
-                interpolation=cv2.INTER_CUBIC,
-                # border_mode=cv2.BORDER_CONSTANT,
-                # value=0,
-                p=0.5,
-            ),
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            # A.HorizontalFlip(p=0.5),
-            # A.VerticalFlip(p=0.5),
-            A.MotionBlur(p=0.1),
-            A.GaussNoise(p=0.1),
+            A.VerticalFlip(p=0.5),
+            A.HorizontalFlip(p=0.5),
+            A.Affine(rotate=(-30, 30), shear=(-25, 25), translate_percent=(-0.25, 0.25), scale=(0.8, 1.2), p=0.3),
+            A.Perspective(0.1),
+            A.GaussNoise(var_limit=(0, 0.02), mean=0, p=0.2),
+            A.GaussianBlur(blur_limit=(3, 7), sigma_limit=(0.1, 2.0), p=0.2),
             A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ]
