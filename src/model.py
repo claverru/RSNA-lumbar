@@ -1,4 +1,5 @@
-from typing import Union
+from pathlib import Path
+from typing import Optional, Union
 import torch
 import lightning as L
 from lightning.pytorch.cli import OptimizerCallable, LRSchedulerCallable
@@ -12,6 +13,7 @@ class LightningModule(L.LightningModule):
         lr_scheduler: LRSchedulerCallable = torch.optim.lr_scheduler.ConstantLR,
         interval: str = "epoch",
         frequency: int = 1,
+        ckpt_path: Optional[Union[str, Path]] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -20,6 +22,13 @@ class LightningModule(L.LightningModule):
         self.lr_scheduler = lr_scheduler
         self.interval = interval
         self.frequency = frequency
+        self.ckpt_path = ckpt_path
+
+    def maybe_restore_checkpoint(self):
+        if self.ckpt_path:
+            print(f"Restoring this model weights from {self.ckpt_path} state_dict")
+            checkpoint = torch.load(self.ckpt_path)
+            self.load_state_dict(checkpoint["state_dict"])
 
     def configure_optimizers(self):
         optimizer = self.optimizer(self.parameters())

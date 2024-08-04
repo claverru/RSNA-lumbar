@@ -1,7 +1,7 @@
 import colorsys
 from pathlib import Path
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 from functools import partial
 
 import numpy as np
@@ -159,3 +159,10 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
     print(f"Train DataFrame has {len(train_df)} values and val DataFrame has {len(val_df)} values")
 
     return train_df, val_df
+
+
+def print_tensor(tensor: Union[Dict[str, torch.Tensor], torch.Tensor]):
+    if isinstance(tensor, dict):
+        print({k: (v.shape, v.dtype) for k, v in tensor.items()})
+    else:
+        print(tensor.shape, tensor.dtype)
