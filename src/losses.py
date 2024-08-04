@@ -7,10 +7,11 @@ from src import constants, utils
 
 
 class LumbarLoss(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, do_any_severe_spinal: bool = True):
         super().__init__()
         self.cond_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1.0, 2.0, 4.0]))
         self.any_severe_spinal_loss = torch.nn.BCEWithLogitsLoss(reduction="none")
+        self.do_any_severe_spinal = do_any_severe_spinal
 
     def __compute_severe_spinal_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
@@ -60,7 +61,8 @@ class LumbarLoss(torch.nn.Module):
         losses = {}
         for condition in constants.CONDITIONS:
             losses[condition] = self.__compute_condition_loss(y_true_dict, y_pred_dict, condition)
-        losses["any_severe_spinal"] = self.__compute_severe_spinal_loss(y_true_dict, y_pred_dict)
+        if self.do_any_severe_spinal:
+            losses["any_severe_spinal"] = self.__compute_severe_spinal_loss(y_true_dict, y_pred_dict)
         return losses
 
 
@@ -68,9 +70,9 @@ class LumbarMetric(Metric):
     is_differentiable = True
     higher_is_better = False
 
-    def __init__(self):
+    def __init__(self, do_any_severe_spinal: bool = True):
         super().__init__()
-        self.loss_f = LumbarLoss()
+        self.loss_f = LumbarLoss(do_any_severe_spinal)
         self.add_state("y_pred_dicts", default=[], dist_reduce_fx="cat")
         self.add_state("y_true_dicts", default=[], dist_reduce_fx="cat")
 

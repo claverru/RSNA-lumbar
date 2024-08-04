@@ -5,10 +5,10 @@ seed_everything: 128
 model:
   class_path: src.patch.model.LightningModule
   init_args:
-    # arch: seresnext50_32x4d.racm_in1k
-    arch: mobilenetv4_conv_small
+    arch: seresnext50_32x4d.racm_in1k
     eval: True
     pretrained: True
+    do_any_severe_spinal: False
     linear_dropout: 0.3
     optimizer:
       class_path: torch.optim.Adam
@@ -17,8 +17,7 @@ model:
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
-        # warmup_steps: 304
-        warmup_steps: 152
+        warmup_steps: 304
     interval: step
 
 data:
@@ -50,12 +49,11 @@ trainer:
         monitor: ${monitor}
         mode: ${monitor_mode}
         filename: '{epoch}_{${monitor}:.4f}'
-        # save_weights_only: True
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: epoch
     - class_path: src.callbacks.Writer
-    # - class_path: src.finetuning.CustomBackboneFinetuning
+    # - class_path: src.callbacks.CustomBackboneFinetuning
     #   init_args:
     #     unfreeze_at_epoch: 5
     #     unfreeze_bn: True

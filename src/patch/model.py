@@ -14,10 +14,12 @@ def get_proj(in_dim, out_dim, dropout=0):
 
 
 class LightningModule(model.LightningModule):
-    def __init__(self, arch, linear_dropout=0.2, pretrained=True, eval=True, **kwargs):
+    def __init__(
+        self, arch, linear_dropout=0.2, pretrained=True, eval=True, do_any_severe_spinal: bool = False, **kwargs
+    ):
         super().__init__(**kwargs)
-        self.train_loss = losses.LumbarLoss()
-        self.val_loss = losses.LumbarMetric()
+        self.train_loss = losses.LumbarLoss(do_any_severe_spinal)
+        self.val_loss = losses.LumbarMetric(do_any_severe_spinal)
         self.norm = torch.nn.InstanceNorm2d(1)
         self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained)
         if eval:
