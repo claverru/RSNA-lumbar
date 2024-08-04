@@ -82,25 +82,40 @@ def get_aug_transforms(img_size):
     )
 
 
-def load_keypoints(keypoints_path: Path = constants.KEYPOINTS_PATH) -> pd.DataFrame:
+def load_keypoints(
+    keypoints_path: Path = constants.KEYPOINTS_PATH, desc_path: Path = constants.DESC_PATH
+) -> pd.DataFrame:
+    # reshape keypoints
     df = pd.read_parquet(keypoints_path)
     levels_sides = constants.LEVELS + ["left", "right"]
     levels_sides_cols = [f"{side}_{x}" for side in levels_sides for x in ("x", "y")]
-    df = df.set_index(constants.BASIC_COLS)
-    df.columns = levels_sides_cols
-    df = df.melt(ignore_index=False)
+    feature_cols = [c for c in df.columns if c.startswith("_f")]
+    new_cols = dict(zip(feature_cols, levels_sides_cols))
+    df = df.rename(columns=new_cols)
+    df = df.melt(id_vars=constants.BASIC_COLS)
     df[["type", "xy"]] = df.pop("variable").str.rsplit("_", n=1, expand=True)
-    df = df.set_index("type", append=True)
-    df = df.pivot_table(values="value", index=df.index.names, columns="xy").reset_index()
+    df = df.pivot(values="value", index=constants.BASIC_COLS + ["type"], columns="xy").reset_index()
+
+    # merge desc filter invalid keypoints
+    desc = utils.load_desc(desc_path)
+    df = df.merge(desc, how="inner", on=constants.BASIC_COLS[:2])
+    is_axial = df["series_description"].eq("Axial T2")
+    is_sagittal = ~is_axial
+    is_levels = df["type"].isin(constants.LEVELS)
+    is_sides = ~is_levels
+    df = df[(is_axial & is_sides) | (is_sagittal & is_levels)]
+    df = df.drop(columns="series_description").reset_index(drop=True)
+
     return df
 
 
 def load_df(
     keypoints_path: Path = constants.KEYPOINTS_PATH,
+    desc_path: Path = constants.DESC_PATH,
     coor_path: Path = constants.COOR_PATH,
     train_path: Path = constants.TRAIN_PATH,
 ):
-    keypoints = load_keypoints(keypoints_path)
+    keypoints = load_keypoints(keypoints_path, desc_path)
 
     coor = utils.load_coor(coor_path).drop(columns=["level", "x", "y"])
 
@@ -129,6 +144,7 @@ class DataModule(L.LightningDataModule):
         keypoints_path: Path = constants.KEYPOINTS_PATH,
         coor_path: Path = constants.COOR_PATH,
         train_path: Path = constants.TRAIN_PATH,
+        desc_path: Path = constants.DESC_PATH,
         img_size: int = 224,
         size_ratio: int = 10,
         img_dir: Path = constants.TRAIN_IMG_DIR,
@@ -145,7 +161,7 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_dir = Path(img_dir)
-        self.df, self.train = load_df(Path(keypoints_path), Path(coor_path), Path(train_path))
+        self.df, self.train = load_df(Path(keypoints_path), Path(desc_path), Path(coor_path), Path(train_path))
         self.train_path = train_path
 
     def split(self) -> Tuple[List[int], List[int]]:

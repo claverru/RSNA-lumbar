@@ -14,7 +14,7 @@ def get_proj(in_dim, out_dim, dropout=0):
 
 
 class LightningModule(model.LightningModule):
-    def __init__(self, arch, linear_dropout, pretrained=True, eval=True, **kwargs):
+    def __init__(self, arch, linear_dropout=0.2, pretrained=True, eval=True, **kwargs):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss()
         self.val_loss = losses.LumbarMetric()
