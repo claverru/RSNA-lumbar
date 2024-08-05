@@ -12,7 +12,8 @@
                 "[python]": {
                     "editor.formatOnSave": true,
                     "editor.codeActionsOnSave": {
-                        "source.fixAll": "explicit"
+                        "source.fixAll": "explicit",
+                        "source.organizeImports": "explicit"
                     }
                 },
                 "ruff.organizeImports": true,
@@ -23,7 +24,9 @@
             },
             "extensions": [
                 "ms-python.python",
-                "charliermarsh.ruff"
+                "charliermarsh.ruff",
+                "ms-toolsai.jupyter",
+                "mechatroner.rainbow-csv"
             ]
         }
     },

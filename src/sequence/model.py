@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Union
 
 import torch
 
@@ -16,23 +16,24 @@ def get_proj(in_dim, out_dim, dropout=0):
 class LightningModule(model.LightningModule):
     def __init__(
         self,
-        arch,
+        image,
+        image_checkpoint,
+        do_any_severe_spinal,
         emb_dim,
         n_heads,
         n_layers,
         att_dropout,
         linear_dropout,
-        pretrained=True,
-        eval=True,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.train_loss = losses.LumbarLoss()
-        self.val_loss = losses.LumbarMetric()
-        if isinstance(pretrained, str):
-            self.backbone = patch_model.LightningModule.load_from_checkpoint(pretrained, pretrained=False)
+        self.train_loss = losses.LumbarLoss(do_any_severe_spinal)
+        self.val_loss = losses.LumbarMetric(do_any_severe_spinal)
+        if image_checkpoint is not None:
+            print(f"Loading image checkpoint {image_checkpoint}")
+            self.backbone = patch_model.LightningModule.load_from_checkpoint(image_checkpoint, **image)
         else:
-            self.backbone = patch_model.LightningModule(arch, linear_dropout, pretrained, eval)
+            self.backbone = patch_model.LightningModule(**image)
 
         self.D = emb_dim
         self.transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
@@ -43,6 +44,8 @@ class LightningModule(model.LightningModule):
             {k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITIONS_COMPLETE}
         )
 
+        self.maybe_restore_checkpoint()
+
     def extract_features(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         true_mask = mask.logical_not()
         B, T, C, H, W = x.shape
@@ -52,7 +55,7 @@ class LightningModule(model.LightningModule):
         feats[true_mask] = filter_feats
         return feats
 
-    def forward(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
         feats = self.extract_features(x, mask)
 
         meta = self.meta_proj(meta)
@@ -63,7 +66,26 @@ class LightningModule(model.LightningModule):
         out = self.transformer(feats, src_key_padding_mask=mask)
         out[mask] = -100
         out = out.amax(1)
-        outs = {k: head(out) for k, head in self.heads.items()}
+        return out
+
+    def forward(
+        self,
+        x: Union[Dict[str, torch.Tensor], torch.Tensor],
+        meta: Union[Dict[str, torch.Tensor], torch.Tensor],
+        mask: Union[Dict[str, torch.Tensor], torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        if isinstance(x, dict):
+            feats = {}
+            for level in constants.LEVELS:
+                feats[level] = self.forward_one(x[level], meta[level], mask[level])
+
+        else:
+            feats = {"none": self.forward_one(x, meta, mask)}
+
+        outs = {}
+        for level, level_feats in feats.items():
+            for cond, head in self.heads.items():
+                outs[f"{cond}_{level}"] = head(level_feats)
         return outs
 
     def training_step(self, batch, batch_idx):
@@ -94,6 +116,20 @@ class LightningModule(model.LightningModule):
 
         loss = sum(losses.values()) / len(losses)
         self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
+
+    def test_step(self, batch, batch_idx):
+        x, meta, mask, y = batch
+        pred = self.forward(x, meta, mask)
+        self.val_loss.update(y, pred)
+
+    def on_test_epoch_end(self, *args, **kwargs):
+        losses = self.val_loss.compute()
+        self.val_loss.reset()
+        for k, v in losses.items():
+            self.log(f"test_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False)
+
+        loss = sum(losses.values()) / len(losses)
+        self.log("test_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x, meta, mask = batch

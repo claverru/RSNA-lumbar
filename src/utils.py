@@ -1,15 +1,15 @@
 import colorsys
-from pathlib import Path
 import random
-from typing import Dict, List, Optional, Tuple, Union
 from functools import partial
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
+import cv2
 import numpy as np
 import pandas as pd
 import pydicom
-from sklearn.model_selection import StratifiedGroupKFold
 import torch
-import cv2
+from sklearn.model_selection import StratifiedGroupKFold
 
 from src import constants
 
@@ -135,6 +135,8 @@ def load_coor(coor_path: Path = constants.COOR_PATH):
 
 
 def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    assert df.index.names[0] == "study_id"
+
     train = pd.read_csv(constants.TRAIN_PATH)
     train = train.melt(id_vars="study_id", var_name="condition_level", value_name="severity")
 
@@ -150,13 +152,13 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
         if i == this_split:
             break
 
-    train_study_ids, val_study_ids = set(groups[train_ids]), set(groups[val_ids])
-    study_id = df.reset_index()["study_id"]
+    train_study_ids, val_study_ids = list(set(groups[train_ids])), list(set(groups[val_ids]))
 
-    train_df = df.iloc[study_id.isin(train_study_ids).values]
-    val_df = df.iloc[study_id.isin(val_study_ids).values]
+    train_df = df.loc[train_study_ids]
+    val_df = df.loc[val_study_ids]
 
-    print(f"Train DataFrame has {len(train_df)} values and val DataFrame has {len(val_df)} values")
+    print(f"Train DataFrame: {len(train_df)}")
+    print(f"Val DataFrame  : {len(val_df)}")
 
     return train_df, val_df
 

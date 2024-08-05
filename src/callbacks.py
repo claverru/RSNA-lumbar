@@ -1,12 +1,11 @@
 from pathlib import Path
 
-from lightning.pytorch.loggers import CSVLogger
-from lightning.pytorch.callbacks import BasePredictionWriter
-from lightning.pytorch.callbacks import BaseFinetuning
-from torch.nn.modules.batchnorm import _BatchNorm
 import matplotlib.pyplot as plt
 import pandas as pd
 import torch
+from lightning.pytorch.callbacks import BaseFinetuning, BasePredictionWriter
+from lightning.pytorch.loggers import CSVLogger
+from torch.nn.modules.batchnorm import _BatchNorm
 
 from src import utils
 
@@ -75,7 +74,7 @@ class Writer(BasePredictionWriter):
             except Exception as e:
                 print(e)
                 print("Fallback to drop last index level")
-                index = df.index.droplevel(-1).unique()
+                index = trainer.predict_dataloaders.dataset.index
                 out_df = pd.DataFrame(index=index, data=data, columns=cols).reset_index()
 
         print(out_df.head())
