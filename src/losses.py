@@ -29,14 +29,13 @@ class LumbarLoss(torch.nn.Module):
         weight = torch.pow(2.0, severe_spinal_true)
         severe_spinal_binary_true = torch.where(severe_spinal_true == 2, 1.0, 0.0)
 
-        severe_spinal_losses: torch.Tensor = (
-            self.any_severe_spinal_loss(
-                severe_spinal_binary_preds[is_valid].to(torch.float), severe_spinal_binary_true[is_valid]
-            )
-            * weight[is_valid]
-        )
+        pred = severe_spinal_binary_preds[is_valid]
+        target = severe_spinal_binary_true[is_valid]
+        weight = weight[is_valid]
 
-        return severe_spinal_losses.mean()
+        severe_spinal_loss = (self.any_severe_spinal_loss(pred, target) * weight).sum() / weight.sum()
+
+        return severe_spinal_loss
 
     def get_condition_tensors(
         self, tensors: Dict[str, torch.Tensor], condition: str, f: Callable = torch.concat
