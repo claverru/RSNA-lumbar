@@ -29,6 +29,8 @@ class LightningModule(model.LightningModule):
 
         self.heads = torch.nn.ModuleDict({k: get_proj(num_features, 3, linear_dropout) for k in constants.CONDITIONS})
 
+        self.maybe_restore_checkpoint()
+
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         x = self.norm(x)
         x = self.backbone(x)

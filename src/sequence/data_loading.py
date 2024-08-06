@@ -27,6 +27,7 @@ class Dataset(torch.utils.data.Dataset):
         self.index = train.index.unique()
         self.transforms = transforms
         self.size_ratio = size_ratio
+        self.study_level_index = set(meta.index)
 
     def __len__(self):
         return len(self.index)
@@ -37,6 +38,11 @@ class Dataset(torch.utils.data.Dataset):
         return self.train.loc[idx].apply(torch.tensor).to_dict()
 
     def get_patches(self, study_id, level, imgs) -> torch.Tensor:
+        if (study_id, level) not in self.study_level_index:
+            img = np.zeros((200, 200), dtype=np.uint8)
+            patch = self.transforms(image=img)["image"][None, ...]
+            return patch
+
         chunk = self.df.loc[(study_id, level)]
         patches = []
         for img_path, gdf in chunk.groupby(level=0):
@@ -48,6 +54,9 @@ class Dataset(torch.utils.data.Dataset):
         return patches
 
     def get_meta(self, study_id, level):
+        if (study_id, level) not in self.study_level_index:
+            return torch.zeros((1, self.meta.shape[1]), dtype=torch.float)
+
         meta = self.meta.loc[(study_id, level)].values
         meta = torch.tensor(meta, dtype=torch.float)
         return meta
@@ -264,8 +273,10 @@ class DataModule(L.LightningDataModule):
 if __name__ == "__main__":
     import yaml
 
-    config = yaml.load(open("configs/sequence.yaml"), Loader=yaml.FullLoader)
+    config = yaml.load(open("configs/sequence_study.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
+
+    dm.meta = dm.meta.drop(dm.meta.index.unique()[:500])
     dm.setup("fit")
     for X, meta, mask, labels in dm.train_dataloader():
         print()
@@ -274,4 +285,4 @@ if __name__ == "__main__":
         utils.print_tensor(mask)
         utils.print_tensor(labels)
         print()
-        input()
+        # input()

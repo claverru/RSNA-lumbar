@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Optional, Tuple
 
-import cv2
 import albumentations as A
+import cv2
 import lightning as L
 import numpy as np
 import pandas as pd
@@ -138,7 +138,7 @@ def load_df(coor_path: Path = constants.COOR_PATH, desc_path: Path = constants.D
     nunique = df.groupby(constants.BASIC_COLS)["level"].transform("nunique")
     df = df[(is_axial & size.eq(2) & nunique.eq(1)) | (is_sagittal & size.eq(5) & nunique.eq(5))]
     df = df.drop(columns="level")
-    df = df.set_index(constants.BASIC_COLS + ["series_description"])
+    df = df.set_index(constants.BASIC_COLS + ["series_description"]).sort_index()
     return df
 
 

@@ -13,36 +13,44 @@ def get_proj(in_dim, out_dim, dropout=0):
     )
 
 
+class MaskDropout(torch.nn.Module):
+    def __init__(self, p: float = 0.01, **kwargs):
+        super().__init__(**kwargs)
+        self.p = p
+
+    def forward(self, mask):
+        if self.training:
+            drop_mask = torch.rand(mask, device=mask.device) < self.p
+            return mask & drop_mask
+        else:
+            return mask
+
+
 class LightningModule(model.LightningModule):
     def __init__(
         self,
-        image,
-        image_checkpoint,
-        do_any_severe_spinal,
-        emb_dim,
-        n_heads,
-        n_layers,
-        att_dropout,
-        linear_dropout,
+        image: dict,
+        do_any_severe_spinal: bool = True,
+        emb_dim: int = 512,
+        n_heads: int = 8,
+        n_layers: int = 6,
+        att_dropout: float = 0.1,
+        emb_dropout: float = 0.1,
+        out_dropout: float = 0.3,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss(do_any_severe_spinal)
         self.val_loss = losses.LumbarMetric(do_any_severe_spinal)
-        if image_checkpoint is not None:
-            print(f"Loading image checkpoint {image_checkpoint}")
-            self.backbone = patch_model.LightningModule.load_from_checkpoint(image_checkpoint, **image)
-        else:
-            self.backbone = patch_model.LightningModule(**image)
+        self.backbone = patch_model.LightningModule(**image)
 
         self.D = emb_dim
         self.transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
-        self.proj = get_proj(None, emb_dim, linear_dropout)
-        self.meta_proj = get_proj(None, 4, linear_dropout)
+        self.proj = get_proj(None, emb_dim, emb_dropout)
 
-        self.heads = torch.nn.ModuleDict(
-            {k: get_proj(emb_dim, 3, linear_dropout) for k in constants.CONDITIONS_COMPLETE}
-        )
+        self.mid_transformer = model.get_transformer(emb_dim, n_heads, 1, att_dropout)
+
+        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, out_dropout) for k in constants.CONDITIONS_COMPLETE})
 
         self.maybe_restore_checkpoint()
 
@@ -58,7 +66,6 @@ class LightningModule(model.LightningModule):
     def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
         feats = self.extract_features(x, mask)
 
-        meta = self.meta_proj(meta)
         feats = torch.concat([feats, meta], -1)
 
         feats = self.proj(feats)
@@ -75,15 +82,21 @@ class LightningModule(model.LightningModule):
         mask: Union[Dict[str, torch.Tensor], torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
         if isinstance(x, dict):
-            feats = {}
-            for level in constants.LEVELS:
-                feats[level] = self.forward_one(x[level], meta[level], mask[level])
+            feats = []
+            levels = constants.LEVELS
+            for level in levels:
+                feats.append(self.forward_one(x[level], meta[level], mask[level]))
 
         else:
-            feats = {"none": self.forward_one(x, meta, mask)}
+            levels = ["none"]
+            feats = [self.forward_one(x, meta, mask)]
+
+        feats = torch.stack(feats, 1)
+        feats = self.mid_transformer(feats)
 
         outs = {}
-        for level, level_feats in feats.items():
+        for i, level in enumerate(levels):
+            level_feats = feats[:, i]
             for cond, head in self.heads.items():
                 outs[f"{cond}_{level}"] = head(level_feats)
         return outs

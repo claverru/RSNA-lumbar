@@ -1,8 +1,5 @@
 from typing import Callable, Dict
 
-import numpy as np
-import pandas as pd
-import sklearn
 import torch
 from torchmetrics import Metric
 
@@ -60,6 +57,7 @@ class LumbarLoss(torch.nn.Module):
         return self.cond_loss(pred_batch.to(torch.float), true_batch)
 
     def forward(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        assert len(y_true_dict) == len(y_pred_dict)
         losses = {}
         for condition in constants.CONDITIONS:
             losses[condition] = self.__compute_condition_loss(y_true_dict, y_pred_dict, condition)
@@ -114,72 +112,3 @@ class FocalLoss(torch.nn.Module):
         if self.reduction == "mean":
             return loss.mean()
         return loss
-
-
-class ParticipantVisibleError(Exception):
-    pass
-
-
-def get_condition(full_location: str) -> str:
-    for injury_condition in ["spinal", "foraminal", "subarticular"]:
-        if injury_condition in full_location:
-            return injury_condition
-    raise ValueError(f"condition not found in {full_location}")
-
-
-def score(
-    solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_name: str = "row_id", any_severe_scalar: float = 1.0
-) -> float:
-    target_levels = ["normal_mild", "moderate", "severe"]
-
-    # Run basic QC checks on the inputs
-    if not pd.api.types.is_numeric_dtype(submission[target_levels].values):
-        raise ParticipantVisibleError("All submission values must be numeric")
-
-    if not np.isfinite(submission[target_levels].values).all():
-        raise ParticipantVisibleError("All submission values must be finite")
-
-    if solution[target_levels].min().min() < 0:
-        raise ParticipantVisibleError("All labels must be at least zero")
-    if submission[target_levels].min().min() < 0:
-        raise ParticipantVisibleError("All predictions must be at least zero")
-
-    solution["study_id"] = solution["row_id"].apply(lambda x: x.split("_")[0])
-    solution["location"] = solution["row_id"].apply(lambda x: "_".join(x.split("_")[1:]))
-    solution["condition"] = solution["row_id"].apply(get_condition)
-
-    del solution[row_id_column_name]
-    del submission[row_id_column_name]
-    assert sorted(submission.columns) == sorted(target_levels)
-
-    submission["study_id"] = solution["study_id"]
-    submission["location"] = solution["location"]
-    submission["condition"] = solution["condition"]
-
-    condition_losses = {}
-    condition_weights = []
-    for condition in ["spinal", "foraminal", "subarticular"]:
-        condition_indices = solution.loc[solution["condition"] == condition].index.values
-        condition_loss = sklearn.metrics.log_loss(
-            y_true=solution.loc[condition_indices, target_levels].values,
-            y_pred=submission.loc[condition_indices, target_levels].values,
-            sample_weight=solution.loc[condition_indices, "sample_weight"].values,
-        )
-        condition_losses[condition] = condition_loss
-        condition_weights.append(1)
-
-    any_severe_spinal_labels = pd.Series(
-        solution.loc[solution["condition"] == "spinal"].groupby("study_id")["severe"].max()
-    )
-    any_severe_spinal_weights = pd.Series(
-        solution.loc[solution["condition"] == "spinal"].groupby("study_id")["sample_weight"].max()
-    )
-    any_severe_spinal_predictions = pd.Series(
-        submission.loc[submission["condition"] == "spinal"].groupby("study_id")["severe"].max()
-    )
-    any_severe_spinal_loss = sklearn.metrics.log_loss(
-        y_true=any_severe_spinal_labels, y_pred=any_severe_spinal_predictions, sample_weight=any_severe_spinal_weights
-    )
-    condition_losses["any_severe_spinal"] = any_severe_spinal_loss
-    condition_weights.append(any_severe_scalar)
-    return condition_losses

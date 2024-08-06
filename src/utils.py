@@ -152,7 +152,10 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
         if i == this_split:
             break
 
-    train_study_ids, val_study_ids = list(set(groups[train_ids])), list(set(groups[val_ids]))
+    train_study_ids, val_study_ids = set(groups[train_ids]), set(groups[val_ids])
+
+    train_study_ids = sorted(train_study_ids.intersection(df.reset_index()["study_id"]))
+    val_study_ids = sorted(val_study_ids.intersection(df.reset_index()["study_id"]))
 
     train_df = df.loc[train_study_ids]
     val_df = df.loc[val_study_ids]

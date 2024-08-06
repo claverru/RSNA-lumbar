@@ -5,7 +5,7 @@ seed_everything: 128
 model:
   class_path: src.patch.model.LightningModule
   init_args:
-    arch: seresnext50_32x4d.racm_in1k
+    arch: mobilenetv4_conv_small
     eval: True
     pretrained: True
     do_any_severe_spinal: False

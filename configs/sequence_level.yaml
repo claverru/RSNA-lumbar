@@ -6,17 +6,18 @@ model:
   class_path: src.sequence.model.LightningModule
   init_args:
     ckpt_path: Null
-    image_checkpoint: lightning_logs/version_0/checkpoints/epoch=5_val_loss=0.4682.ckpt
     image:
-      arch: seresnext50_32x4d.racm_in1k
+      ckpt_path: Null
+      arch: mobilenetv4_conv_small
       eval: True
-      pretrained: False
-    do_any_severe_spinal: False
-    emb_dim: 512
+      pretrained: True
+    do_any_severe_spinal: True
+    emb_dim: 768
     n_heads: 4
     n_layers: 6
     att_dropout: 0.1
-    linear_dropout: 0.2
+    emb_dropout: 0.1
+    out_dropout: 0.5
     optimizer:
       class_path: torch.optim.Adam
       init_args:
@@ -63,7 +64,7 @@ trainer:
     - class_path: src.callbacks.Writer
     - class_path: src.callbacks.CustomBackboneFinetuning
       init_args:
-        unfreeze_at_epoch: -1
+        unfreeze_at_epoch: 0
         unfreeze_bn: False
   accelerator: gpu
   precision: 16-mixed

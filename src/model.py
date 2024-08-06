@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import Optional, Union
-import torch
+
 import lightning as L
-from lightning.pytorch.cli import OptimizerCallable, LRSchedulerCallable
+import torch
+from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from torch.optim.lr_scheduler import _LRScheduler
 
 
@@ -25,10 +26,15 @@ class LightningModule(L.LightningModule):
         self.ckpt_path = ckpt_path
 
     def maybe_restore_checkpoint(self):
-        if self.ckpt_path:
-            print(f"Restoring this model weights from {self.ckpt_path} state_dict")
-            checkpoint = torch.load(self.ckpt_path)
-            self.load_state_dict(checkpoint["state_dict"])
+        if self.ckpt_path is not None:
+            ckpt_path = Path(self.ckpt_path)
+            print(f"Restoring this model weights from {ckpt_path} state_dict ...")
+            if ckpt_path.exists():
+                checkpoint = torch.load(ckpt_path)
+                self.load_state_dict(checkpoint["state_dict"])
+                print("Weights loaded.")
+            else:
+                print("Couldn't load weights. Path doesn't exist.")
 
     def configure_optimizers(self):
         optimizer = self.optimizer(self.parameters())
