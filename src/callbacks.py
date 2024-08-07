@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import List, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -46,13 +47,13 @@ class CustomLogger(CSVLogger):
 
 
 class Writer(BasePredictionWriter):
-    def __init__(self, out_dir=None, preds_name="preds.parquet"):
+    def __init__(self, out_dir: Optional[str] = None, preds_name: str = "preds.parquet"):
         super().__init__("epoch")
         self.out_dir = out_dir
         self.preds_name = preds_name
 
     def write_on_epoch_end(self, trainer, pl_module, predictions, batch_indices):
-        out_dir = self.out_dir if self.out_dir is not None else Path(trainer.logger.log_dir)
+        out_dir = Path(self.out_dir) if self.out_dir is not None else Path(trainer.logger.log_dir)
         out_path = out_dir / self.preds_name
 
         preds = utils.cat_dict_tensor(predictions)
@@ -83,13 +84,21 @@ class Writer(BasePredictionWriter):
 
 
 class CustomBackboneFinetuning(BaseFinetuning):
-    def __init__(self, unfreeze_at_epoch=10, unfreeze_bn=False):
+    def __init__(
+        self, unfreeze_at_epoch: int = 10, unfreeze_bn: bool = False, backbone_names: List[str] = ["backbone"]
+    ):
         super().__init__()
         self._unfreeze_at_epoch = unfreeze_at_epoch
         self._unfreeze_bn = unfreeze_bn
+        self._backbone_names_ = backbone_names
+
+    def get_backbone(self, pl_module, name):
+        return getattr(pl_module, name)
 
     def freeze_before_training(self, pl_module):
-        self.freeze(pl_module.backbone, train_bn=False)
+        for name in self._backbone_names_:
+            print(f"Freezing {name}")
+            self.freeze(self.get_backbone(pl_module, name), train_bn=False)
 
     @staticmethod
     def make_trainable(modules, unfreeze_backbone) -> None:
@@ -106,5 +115,6 @@ class CustomBackboneFinetuning(BaseFinetuning):
 
     def finetune_function(self, pl_module, current_epoch, optimizer):
         if current_epoch == self._unfreeze_at_epoch:
-            print(f"Unfreezing backbone... at epoch {current_epoch}")
-            self.make_trainable(modules=pl_module.backbone, unfreeze_backbone=self._unfreeze_bn)
+            for name in self._backbone_names_:
+                print(f"Unfreezing {name} (epoch {current_epoch})")
+                self.make_trainable(modules=self.get_backbone(pl_module, name), unfreeze_backbone=self._unfreeze_bn)

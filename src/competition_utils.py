@@ -27,7 +27,7 @@ def studypreds2submission(df: pd.DataFrame) -> pd.DataFrame:
     df = df.melt(id_vars="study_id")
     df[["condition_level", "severity"]] = df.pop("variable").str.rsplit("_", n=1, expand=True)
     df = df.pivot_table(index=["study_id", "condition_level"], columns=["severity"], values="value").reset_index()
-    df = df.rename(columns={"f0": "normal_mild", "f1": "moderate", "f2": "severe"})
+    df = df.rename(columns=F2SEVERITIES)
     df["row_id"] = df.pop("study_id").astype(str) + "_" + df.pop("condition_level")
     df[COMP_SEVERITIES] = softmax(df[COMP_SEVERITIES])
     df = df.sort_values("row_id").reset_index(drop=True)
@@ -35,12 +35,13 @@ def studypreds2submission(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def levelpreds2submission(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.melt(ignore_index=False, var_name="condition")
-    df["sample_weight"] = 2 ** df["value"].clip(lower=0)
-    df[["none"] + COMP_SEVERITIES] = pd.get_dummies(df.pop("value")).astype(int)[[-1, 0, 1, 2]]
-    df = df[df["none"] == 0].drop(columns="none").reset_index()
-    df["row_id"] = df.pop("study_id").astype(str) + "_" + df.pop("condition")
-    df = df.sort_values("row_id").reset_index(drop=True)
+    df = df.melt(id_vars=["study_id", "level"], var_name="condition")
+    df[["condition", "severity"]] = df.pop("condition").str.split("_none_", expand=True)
+    df["severity"] = df["severity"].map(F2SEVERITIES)
+    df["row_id"] = df.pop("study_id").astype(str) + "_" + df.pop("condition") + "_" + df.pop("level")
+    df = df.pivot(index="row_id", columns="severity", values="value")
+    df[COMP_SEVERITIES] = softmax(df[COMP_SEVERITIES])
+    df = df.sort_index().reset_index()
     return df
 
 
