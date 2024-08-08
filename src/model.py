@@ -31,7 +31,12 @@ class LightningModule(L.LightningModule):
             print(f"Restoring this model weights from {ckpt_path} state_dict ...")
             if ckpt_path.exists():
                 checkpoint = torch.load(ckpt_path)
-                self.load_state_dict(checkpoint["state_dict"])
+                try:
+                    self.load_state_dict(checkpoint["state_dict"])
+                except Exception as e:
+                    print(e)
+                    print("Setting strict to False. Take a look at the unmatching keys above.")
+                    self.load_state_dict(checkpoint["state_dict"], strict=False)
                 print("Weights loaded.")
             else:
                 print("Couldn't load weights. Path doesn't exist.")

@@ -67,7 +67,7 @@ class LumbarLoss(torch.nn.Module):
 
 
 class LumbarMetric(Metric):
-    is_differentiable = True
+    is_differentiable = False
     higher_is_better = False
 
     def __init__(self, do_any_severe_spinal: bool = True):

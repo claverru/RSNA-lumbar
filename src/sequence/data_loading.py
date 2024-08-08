@@ -117,14 +117,6 @@ def predict_collate_fn_dict(data):
     return X, meta, mask
 
 
-def predict_collate_fn(data):
-    X, meta, mask = zip(*data)
-    X = utils.pad_sequences(X, padding_value=0)
-    meta = utils.pad_sequences(meta, padding_value=0)
-    mask = utils.pad_sequences(mask, padding_value=True)
-    return X, meta, mask
-
-
 def load_levels(levels_path: Path = constants.LEVELS_PATH):
     df = pd.read_parquet(levels_path)
     probas_cols = [c for c in df.columns if c.startswith("probas")]
@@ -185,7 +177,7 @@ def load_df(
 class DataModule(L.LightningDataModule):
     def __init__(
         self,
-        per_level: bool = False,
+        train_per_level: bool = False,
         keypoints_path: Path = constants.KEYPOINTS_PATH,
         desc_path: Path = constants.DESC_PATH,
         train_path: Path = constants.TRAIN_PATH,
@@ -210,9 +202,9 @@ class DataModule(L.LightningDataModule):
         self.df, self.meta = load_df(
             Path(keypoints_path), Path(levels_path), Path(desc_path), Path(meta_path), self.img_dir
         )
-        self.train = utils.load_train(train_path, per_level=per_level)
+        self.train = utils.load_train(train_path)
         self.train_path = train_path
-        self.per_level = per_level
+        self.train_per_level = train_per_level
 
     def split(self) -> Tuple[List[int], List[int]]:
         return utils.split(self.train, self.n_splits, self.this_split)
@@ -220,15 +212,19 @@ class DataModule(L.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             train_df, val_df = self.split()
+            if self.train_per_level:
+                train_df = utils.train_study2level(train_df)
+
             self.train_ds = Dataset(train_df, self.df, self.meta, self.size_ratio, get_aug_transforms(self.img_size))
             self.val_ds = Dataset(val_df, self.df, self.meta, self.size_ratio, get_transforms(self.img_size))
 
         if stage == "test":
             _, val_df = self.split()
+
             self.test_ds = Dataset(val_df, self.df, self.meta, self.size_ratio, get_transforms(self.img_size))
 
         if stage == "predict":
-            fake_train = self.df[[]].droplevel(2) if self.per_level else self.df[[]].droplevel([1, 2])
+            fake_train = self.df[[]].droplevel([1, 2])
             self.predict_ds = Dataset(fake_train, self.df, self.meta, self.size_ratio, get_transforms(self.img_size))
 
     def train_dataloader(self):
@@ -237,7 +233,7 @@ class DataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             worker_init_fn=lambda wid: np.random.seed(np.random.get_state()[1][0] + wid),
-            collate_fn=collate_fn if self.per_level else collate_fn_dict,
+            collate_fn=collate_fn if self.train_per_level else collate_fn_dict,
             drop_last=True,
             shuffle=True,
         )
@@ -248,7 +244,7 @@ class DataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             worker_init_fn=lambda wid: np.random.seed(np.random.get_state()[1][0] + wid),
-            collate_fn=collate_fn if self.per_level else collate_fn_dict,
+            collate_fn=collate_fn_dict,
         )
 
     def test_dataloader(self):
@@ -257,7 +253,7 @@ class DataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             worker_init_fn=lambda wid: np.random.seed(np.random.get_state()[1][0] + wid),
-            collate_fn=collate_fn if self.per_level else collate_fn_dict,
+            collate_fn=collate_fn_dict,
         )
 
     def predict_dataloader(self):
@@ -266,17 +262,16 @@ class DataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             worker_init_fn=lambda wid: np.random.seed(np.random.get_state()[1][0] + wid),
-            collate_fn=predict_collate_fn if self.per_level else predict_collate_fn_dict,
+            collate_fn=predict_collate_fn_dict,
         )
 
 
 if __name__ == "__main__":
     import yaml
 
-    config = yaml.load(open("configs/sequence_study.yaml"), Loader=yaml.FullLoader)
+    config = yaml.load(open("configs/sequence.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
 
-    dm.meta = dm.meta.drop(dm.meta.index.unique()[:500])
     dm.setup("fit")
     for X, meta, mask, labels in dm.train_dataloader():
         print()
@@ -285,4 +280,13 @@ if __name__ == "__main__":
         utils.print_tensor(mask)
         utils.print_tensor(labels)
         print()
-        # input()
+        break
+
+    for X, meta, mask, labels in dm.val_dataloader():
+        print()
+        utils.print_tensor(X)
+        utils.print_tensor(meta)
+        utils.print_tensor(mask)
+        utils.print_tensor(labels)
+        print()
+        break

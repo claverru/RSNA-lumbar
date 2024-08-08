@@ -44,17 +44,25 @@ def load_dcm_img(path: Path, add_channels: bool = True, size: Optional[int] = No
 
 
 def load_train(
-    train_path: Path = constants.TRAIN_PATH, fillna=-1, per_level: bool = False, label_map=constants.SEVERITY2LABEL
-):
+    train_path: Path = constants.TRAIN_PATH,
+    fillna: int = -1,
+    per_level: bool = False,
+    label_map: Dict[str, int] = constants.SEVERITY2LABEL,
+) -> pd.DataFrame:
     df = pd.read_csv(train_path, index_col=0)
     if label_map is not None:
         df = df.map(lambda x: constants.SEVERITY2LABEL.get(x, fillna))
     if per_level:
-        df = df.melt(ignore_index=False, var_name="condition_level", value_name="severity")
-        pat = r"^(.*)_(l\d+_[l|s]\d+)$"
-        df[["condition", "level"]] = df.pop("condition_level").str.extractall(pat).droplevel(1, axis=0)
-        df = df.set_index("level", append=True)
-        df = df.pivot(columns="condition", values="severity")
+        df = train_study2level(df)
+    return df
+
+
+def train_study2level(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.melt(ignore_index=False, var_name="condition_level", value_name="severity")
+    pat = r"^(.*)_(l\d+_[l|s]\d+)$"
+    df[["condition", "level"]] = df.pop("condition_level").str.extractall(pat).droplevel(1, axis=0)
+    df = df.set_index("level", append=True)
+    df = df.pivot(columns="condition", values="severity")
     return df
 
 

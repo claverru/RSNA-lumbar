@@ -26,29 +26,34 @@ class MaskDropout(torch.nn.Module):
             return mask
 
 
+def detach_tensors(tensors: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    return {k: v.detach() for k, v in tensors.items()}
+
+
 class LightningModule(model.LightningModule):
     def __init__(
         self,
         image: dict,
-        do_any_severe_spinal: bool = True,
+        train_any_severe_spinal: bool = True,
         emb_dim: int = 512,
         n_heads: int = 8,
         n_layers: int = 6,
+        add_mid_transformer: bool = False,
         att_dropout: float = 0.1,
         emb_dropout: float = 0.1,
         out_dropout: float = 0.3,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.train_loss = losses.LumbarLoss(do_any_severe_spinal)
-        self.val_loss = losses.LumbarMetric(do_any_severe_spinal)
+        self.train_loss = losses.LumbarLoss(train_any_severe_spinal)
+        self.val_metric = losses.LumbarMetric(True)
         self.backbone = patch_model.LightningModule(**image)
 
         self.D = emb_dim
         self.transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
         self.proj = get_proj(None, emb_dim, emb_dropout)
 
-        self.mid_transformer = model.get_transformer(emb_dim, n_heads, 1, att_dropout)
+        self.mid_transformer = model.get_transformer(emb_dim, n_heads, 1, att_dropout) if add_mid_transformer else None
 
         self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, out_dropout) for k in constants.CONDITIONS_COMPLETE})
 
@@ -65,11 +70,8 @@ class LightningModule(model.LightningModule):
 
     def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
         feats = self.extract_features(x, mask)
-
         feats = torch.concat([feats, meta], -1)
-
         feats = self.proj(feats)
-
         out = self.transformer(feats, src_key_padding_mask=mask)
         out[mask] = -100
         out = out.amax(1)
@@ -92,7 +94,8 @@ class LightningModule(model.LightningModule):
             feats = [self.forward_one(x, meta, mask)]
 
         feats = torch.stack(feats, 1)
-        feats = self.mid_transformer(feats)
+        if self.mid_transformer is not None:
+            feats = self.mid_transformer(feats)
 
         outs = {}
         for i, level in enumerate(levels):
@@ -104,45 +107,33 @@ class LightningModule(model.LightningModule):
     def training_step(self, batch, batch_idx):
         x, meta, mask, y = batch
         pred = self.forward(x, meta, mask)
-        batch_size = y[list(y)[0]].shape[0]
-
-        losses: Dict[str, torch.Tensor] = self.train_loss(y, pred)
-
-        for k, v in losses.items():
-            self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False, batch_size=batch_size)
-
+        losses = self.train_loss(y, pred)
         loss = sum(losses.values()) / len(losses)
-        self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True, batch_size=batch_size)
-
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, meta, mask, y = batch
         pred = self.forward(x, meta, mask)
-        self.val_loss.update(y, pred)
-
-    def on_validation_epoch_end(self, *args, **kwargs):
-        losses = self.val_loss.compute()
-        self.val_loss.reset()
-        for k, v in losses.items():
-            self.log(f"val_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False)
-
-        loss = sum(losses.values()) / len(losses)
-        self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
+        self.val_metric.update(y, pred)
 
     def test_step(self, batch, batch_idx):
-        x, meta, mask, y = batch
-        pred = self.forward(x, meta, mask)
-        self.val_loss.update(y, pred)
+        self.validation_step(batch, batch_idx)
 
-    def on_test_epoch_end(self, *args, **kwargs):
-        losses = self.val_loss.compute()
-        self.val_loss.reset()
+    def do_metric_on_epoch_end(self, prefix):
+        losses = self.val_metric.compute()
+        self.val_metric.reset()
         for k, v in losses.items():
-            self.log(f"test_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False)
+            self.log(f"{prefix}_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False)
 
         loss = sum(losses.values()) / len(losses)
-        self.log("test_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
+        self.log(f"{prefix}_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
+
+    def on_validation_epoch_end(self, *args, **kwargs):
+        self.do_metric_on_epoch_end("val")
+
+    def on_test_epoch_end(self, *args, **kwargs):
+        self.do_metric_on_epoch_end("test")
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x, meta, mask = batch
