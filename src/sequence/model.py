@@ -49,9 +49,9 @@ class LightningModule(model.LightningModule):
         self.val_metric = losses.LumbarMetric(True)
         self.backbone = patch_model.LightningModule(**image)
 
-        self.D = emb_dim
+        emb_dim = self.backbone.backbone.num_features + 3
+
         self.transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
-        self.proj = get_proj(None, emb_dim, emb_dropout)
 
         self.mid_transformer = model.get_transformer(emb_dim, n_heads, 1, att_dropout) if add_mid_transformer else None
 
@@ -71,7 +71,6 @@ class LightningModule(model.LightningModule):
     def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
         feats = self.extract_features(x, mask)
         feats = torch.concat([feats, meta], -1)
-        feats = self.proj(feats)
         out = self.transformer(feats, src_key_padding_mask=mask)
         out[mask] = -100
         out = out.amax(1)

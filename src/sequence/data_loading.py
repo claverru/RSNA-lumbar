@@ -132,8 +132,34 @@ def load_levels(levels_path: Path = constants.LEVELS_PATH):
 def load_meta(meta_path: Path = constants.META_PATH):
     meta = pd.read_csv(meta_path)
     meta = meta.fillna(0)
-    meta = utils.normalize_meta(meta)
+    # meta = utils.normalize_meta(meta)
     return meta
+
+
+def compute_xyz_world(df):
+    o0 = df["ImageOrientationPatient_0"].values
+
+    o1 = df["ImageOrientationPatient_1"].values
+    o2 = df["ImageOrientationPatient_2"].values
+    o3 = df["ImageOrientationPatient_3"].values
+    o4 = df["ImageOrientationPatient_4"].values
+    o5 = df["ImageOrientationPatient_5"].values
+
+    delx = df["PixelSpacing_0"].values
+    dely = df["PixelSpacing_1"].values
+
+    sx = df["ImagePositionPatient_0"].values
+    sy = df["ImagePositionPatient_1"].values
+    sz = df["ImagePositionPatient_2"].values
+
+    x = df["x"] * df["Columns"]
+    y = df["y"] * df["Rows"]
+
+    df["xx"] = o0 * delx * x + o3 * dely * y + sx
+    df["yy"] = o1 * delx * x + o4 * dely * y + sy
+    df["zz"] = o2 * delx * x + o5 * dely * y + sz
+
+    return df
 
 
 def load_df(
@@ -159,6 +185,7 @@ def load_df(
 
     # merge meta
     df = df.merge(meta, how="inner", on=constants.BASIC_COLS)
+    df = compute_xyz_world(df)
 
     # sort, clean and index
     df = df.sort_values(constants.BASIC_COLS)
@@ -167,7 +194,7 @@ def load_df(
     df = df.set_index(["study_id", "level", "img_path"]).sort_index()
 
     x = df[["x", "y"]]
-    new_meta = df.droplevel(2)
+    new_meta = df[["xx", "yy", "zz"]].droplevel(2)
 
     print("Data loaded")
 

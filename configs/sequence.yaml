@@ -7,13 +7,13 @@ model:
   init_args:
     # ckpt_path: lightning_logs/version_10/checkpoints/epoch=4_val_loss=0.5782.ckpt
     image:
-      ckpt_path: lightning_logs/version_6/checkpoints/epoch=8_val_loss=0.4758.ckpt
+      ckpt_path: lightning_logs/version_2/checkpoints/epoch=5_val_loss=0.4569.ckpt
       arch: regnetz_b16.ra3_in1k
-      eval: False
-      pretrained: False
+      eval: True
+      pretrained: True
     train_any_severe_spinal: False
     emb_dim: 768
-    n_heads: 4
+    n_heads: 3
     n_layers: 6
     att_dropout: 0.1
     emb_dropout: 0.1
@@ -66,7 +66,7 @@ trainer:
     - class_path: src.callbacks.CustomBackboneFinetuning
       init_args:
         unfreeze_at_epoch: 0
-        unfreeze_bn: True
+        unfreeze_bn: False
   accelerator: gpu
   precision: 16-mixed
   max_epochs: 10000

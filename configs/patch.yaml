@@ -5,7 +5,7 @@ seed_everything: 128
 model:
   class_path: src.patch.model.LightningModule
   init_args:
-    arch: mobilenetv4_conv_small
+    arch: regnetz_b16.ra3_in1k
     eval: True
     pretrained: True
     do_any_severe_spinal: False
@@ -42,7 +42,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 5
+        patience: 3
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
