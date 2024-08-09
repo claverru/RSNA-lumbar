@@ -137,6 +137,7 @@ def load_meta(meta_path: Path = constants.META_PATH):
 
 
 def compute_xyz_world(df):
+    # XYZ
     o0 = df["ImageOrientationPatient_0"].values
 
     o1 = df["ImageOrientationPatient_1"].values
@@ -158,6 +159,16 @@ def compute_xyz_world(df):
     df["xx"] = o0 * delx * x + o3 * dely * y + sx
     df["yy"] = o1 * delx * x + o4 * dely * y + sy
     df["zz"] = o2 * delx * x + o5 * dely * y + sz
+
+    # Position
+    def position(x):
+        x -= x.min()
+        x /= x.max() + 1e-7
+        return x
+
+    df["pos_x"] = df.groupby("series_id")["ImagePositionPatient_0"].transform(position)
+    df["pos_y"] = df.groupby("series_id")["ImagePositionPatient_1"].transform(position)
+    df["pos_z"] = df.groupby("series_id")["ImagePositionPatient_2"].transform(position)
 
     return df
 
@@ -194,7 +205,7 @@ def load_df(
     df = df.set_index(["study_id", "level", "img_path"]).sort_index()
 
     x = df[["x", "y"]]
-    new_meta = df[["xx", "yy", "zz"]].droplevel(2)
+    new_meta = df[["xx", "yy", "zz", "level_proba", "pos_x", "pos_y", "pos_z"]].droplevel(2)
 
     print("Data loaded")
 
