@@ -1,4 +1,4 @@
-from typing import Callable, Dict
+from typing import Callable, Dict, List
 
 import torch
 from torchmetrics import Metric
@@ -7,11 +7,12 @@ from src import constants, utils
 
 
 class LumbarLoss(torch.nn.Module):
-    def __init__(self, do_any_severe_spinal: bool = True):
+    def __init__(self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS):
         super().__init__()
         self.cond_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1.0, 2.0, 4.0]))
         self.any_severe_spinal_loss = torch.nn.BCEWithLogitsLoss(reduction="none")
         self.do_any_severe_spinal = do_any_severe_spinal
+        self.conditions = conditions
 
     def __compute_severe_spinal_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
@@ -59,7 +60,7 @@ class LumbarLoss(torch.nn.Module):
     def forward(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]) -> Dict[str, float]:
         assert len(y_true_dict) == len(y_pred_dict)
         losses = {}
-        for condition in constants.CONDITIONS:
+        for condition in self.conditions:
             losses[condition] = self.__compute_condition_loss(y_true_dict, y_pred_dict, condition)
         if self.do_any_severe_spinal:
             losses["any_severe_spinal"] = self.__compute_severe_spinal_loss(y_true_dict, y_pred_dict)
@@ -70,9 +71,9 @@ class LumbarMetric(Metric):
     is_differentiable = False
     higher_is_better = False
 
-    def __init__(self, do_any_severe_spinal: bool = True):
+    def __init__(self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS):
         super().__init__()
-        self.loss_f = LumbarLoss(do_any_severe_spinal)
+        self.loss_f = LumbarLoss(do_any_severe_spinal, conditions)
         self.add_state("y_pred_dicts", default=[], dist_reduce_fx="cat")
         self.add_state("y_true_dicts", default=[], dist_reduce_fx="cat")
 
