@@ -42,7 +42,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: ${monitor}
-        patience: 3
+        patience: 5
         mode: ${monitor_mode}
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -53,10 +53,10 @@ trainer:
       init_args:
         logging_interval: epoch
     - class_path: src.callbacks.Writer
-    # - class_path: src.callbacks.CustomBackboneFinetuning
-    #   init_args:
-    #     unfreeze_at_epoch: 5
-    #     unfreeze_bn: True
+    - class_path: src.callbacks.CustomBackboneFinetuning
+      init_args:
+        unfreeze_at_epoch: 2
+        unfreeze_bn: False
   accelerator: gpu
   precision: 16-mixed
   max_epochs: 10000
