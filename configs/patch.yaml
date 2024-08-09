@@ -26,7 +26,7 @@ data:
     img_dir: mount/train_images_clip
     batch_size: 128
     img_size: 112
-    size_ratio: 10
+    size_ratio: 9
 
 trainer:
   accumulate_grad_batches: 1
@@ -59,6 +59,6 @@ trainer:
         unfreeze_bn: False
   accelerator: gpu
   precision: 16-mixed
-  max_epochs: 10000
+  max_epochs: 30 # to avoid crazy stuff
 
 ckpt_path: null
