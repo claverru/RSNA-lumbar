@@ -5,7 +5,7 @@ seed_everything: 128
 model:
   class_path: src.sequence.model.LightningModule
   init_args:
-    ckpt_path: lightning_logs/version_3/checkpoints/epoch=3_val_loss=0.4460.ckpt
+    ckpt_path: lightning_logs/version_8/checkpoints/epoch=1_val_loss=0.4374.ckpt
     image:
       # ckpt_path: trash/patch/checkpoints/epoch=7_val_loss=0.4561.ckpt
       arch: regnetz_b16.ra3_in1k
@@ -26,7 +26,7 @@ model:
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
-        warmup_steps: 493
+        warmup_steps: 197
     interval: step
 
 data:

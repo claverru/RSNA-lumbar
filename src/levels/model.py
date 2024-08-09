@@ -1,5 +1,5 @@
-import torch
 import timm
+import torch
 import torchmetrics
 
 from src import constants, model
@@ -15,7 +15,7 @@ class LightningModule(model.LightningModule):
     ):
         super().__init__(**kwargs)
         self.in_channels = 1
-        self.loss_f = torch.nn.CrossEntropyLoss(ignore_index=-1)
+        self.loss_f = torch.nn.BCEWithLogitsLoss()
         self.acc = torchmetrics.Accuracy(task="multiclass", num_classes=len(constants.LEVELS))
         self.acc2 = torchmetrics.Accuracy(task="multiclass", num_classes=len(constants.LEVELS), top_k=2)
         self.backbone = timm.create_model(arch, pretrained=pretrained, num_classes=0, in_chans=self.in_channels).eval()
@@ -34,7 +34,9 @@ class LightningModule(model.LightningModule):
     def do_step(self, batch, prefix="train"):
         x, y = batch
         pred, _ = self.forward(x)
-        loss = self.loss_f(pred, y)
+        y_oh = torch.nn.functional.one_hot(y, num_classes=5).float()
+
+        loss = self.loss_f(pred, y_oh)
         acc = self.acc(pred, y)
         acc2 = self.acc2(pred, y)
         self.log(f"{prefix}_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
@@ -51,4 +53,4 @@ class LightningModule(model.LightningModule):
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         X = batch
         pred, emb = self.forward(X)
-        return {"probas": pred.softmax(1), "emb": emb}
+        return {"probas": pred.sigmoid(), "emb": emb}
