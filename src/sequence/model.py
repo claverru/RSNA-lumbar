@@ -123,14 +123,15 @@ class LightningModule(model.LightningModule):
             levels = ["none"]
             feats = [self.forward_one(x, meta, mask)]
 
-        feats = torch.stack(feats, 1)
+        feats = torch.concatenate(feats, 1)
         if self.mid_transformer is not None:
             feats = self.mid_transformer(feats)
 
+        out_keys = [f"{cond}_{lvl}" for lvl in enumerate(levels) for cond in constants.CONDITIONS_COMPLETE]
+
         outs = {}
-        for i, level in enumerate(levels):
-            for j, condition in enumerate(constants.CONDITIONS_COMPLETE):
-                outs[f"{condition}_{level}"] = self.head(feats[:, i, j])
+        for i, k in enumerate(out_keys):
+            outs[k] = self.head(feats[:, i])
         return outs
 
     def training_step(self, batch, batch_idx):

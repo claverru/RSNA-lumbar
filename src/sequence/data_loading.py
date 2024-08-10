@@ -173,6 +173,9 @@ def compute_xyz_world(df):
     df["pos_y"] = df.groupby("series_id")["ImagePositionPatient_1"].transform(position)
     df["pos_z"] = df.groupby("series_id")["ImagePositionPatient_2"].transform(position)
 
+    # to split right left
+    # df["pos_x"].apply(lambda x: "right" if x < 0.5 else "left")
+
     return df
 
 
