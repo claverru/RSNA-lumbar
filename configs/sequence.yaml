@@ -101,7 +101,7 @@ model:
   class_path: src.sequence.model.LightningModule
   init_args:
     image:
-      ckpt_path: checkpoints/patch/checkpoints/epoch=7_val_loss=0.4561.ckpt
+      ckpt_path: trash/patch/checkpoints/epoch=6_val_loss=0.4477.ckpt
       arch: regnetz_b16.ra3_in1k
       eval: false
       pretrained: true

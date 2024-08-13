@@ -13,7 +13,7 @@ model:
     optimizer:
       class_path: torch.optim.Adam
       init_args:
-        lr: 1e-4
+        lr: 9e-5
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
@@ -55,7 +55,7 @@ trainer:
     - class_path: src.callbacks.Writer
     - class_path: src.callbacks.CustomBackboneFinetuning
       init_args:
-        unfreeze_at_epoch: 2
+        unfreeze_at_epoch: 0
         unfreeze_bn: False
   accelerator: gpu
   precision: 16-mixed
