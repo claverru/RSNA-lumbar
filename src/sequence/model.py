@@ -1,5 +1,5 @@
 import math
-from typing import Dict, Union
+from typing import Dict, List
 
 import torch
 
@@ -49,10 +49,10 @@ class LightningModule(model.LightningModule):
         self,
         image: dict,
         train_any_severe_spinal: bool = True,
+        conditions: List[str] = constants.CONDITIONS,
         emb_dim: int = 512,
         n_heads: int = 8,
         n_layers: int = 6,
-        add_mid_transformer: bool = False,
         att_dropout: float = 0.1,
         emb_dropout: float = 0.1,
         out_dropout: float = 0.3,
@@ -63,22 +63,26 @@ class LightningModule(model.LightningModule):
         self.val_metric = losses.LumbarMetric(True)
         self.backbone = patch_model.LightningModule(**image)
 
+        self.conditions = conditions
+
         self.meta_proj = get_proj(None, emb_dim, emb_dropout)
         self.proj = get_proj(None, emb_dim, emb_dropout)
         self.pos = PositionalEncoding(emb_dim, att_dropout, max_len=5000)
 
-        # self.transformer = model.get_transformer(emb_dim, n_heads, n_layers, att_dropout)
         self.transformer = torch.nn.Transformer(
-            emb_dim, n_heads, n_layers, dropout=att_dropout, batch_first=True, norm_first=True
+            emb_dim,
+            n_heads,
+            n_layers,
+            activation="gelu",
+            dropout=att_dropout,
+            dim_feedforward=emb_dim * 2,
+            batch_first=True,
+            norm_first=True,
         )
 
-        self.mid_transformer = model.get_transformer(emb_dim, n_heads, 1, att_dropout) if add_mid_transformer else None
-
-        self.head = get_proj(emb_dim, 3, out_dropout)
-        self.conditions = torch.nn.Parameter(
-            torch.randn(1, len(constants.CONDITIONS_COMPLETE), emb_dim), requires_grad=True
-        )
-        self.register_buffer("conditions_mask", torch.zeros(1, len(constants.CONDITIONS_COMPLETE), dtype=torch.bool))
+        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
+        self.condition_embs = torch.nn.Parameter(torch.randn(1, len(self.conditions), emb_dim), requires_grad=True)
+        self.register_buffer("condition_embs_mask", torch.zeros(1, len(self.conditions), dtype=torch.bool))
 
         self.maybe_restore_checkpoint()
 
@@ -100,51 +104,51 @@ class LightningModule(model.LightningModule):
         feats = self.pos(feats)
         meta = self.pos(meta)
 
-        feats = torch.concat([self.conditions.repeat(feats.shape[0], 1, 1), feats], axis=1)
-        decoder_mask = torch.concat([self.conditions_mask.repeat(mask.shape[0], 1), mask], axis=1)
+        feats = torch.concat([self.condition_embs.repeat(feats.shape[0], 1, 1), feats], axis=1)
+        decoder_mask = torch.concat([self.condition_embs_mask.repeat(mask.shape[0], 1), mask], axis=1)
 
         out = self.transformer(src=meta, tgt=feats, src_key_padding_mask=mask, tgt_key_padding_mask=decoder_mask)
-        out = out[:, : len(constants.CONDITIONS_COMPLETE)]
+        out = out[:, : len(self.conditions)]
         return out
 
     def forward(
-        self,
-        x: Union[Dict[str, torch.Tensor], torch.Tensor],
-        meta: Union[Dict[str, torch.Tensor], torch.Tensor],
-        mask: Union[Dict[str, torch.Tensor], torch.Tensor],
+        self, x: Dict[str, torch.Tensor], meta: Dict[str, torch.Tensor], mask: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
-        if isinstance(x, dict):
-            feats = []
-            levels = constants.LEVELS
-            for level in levels:
-                feats.append(self.forward_one(x[level], meta[level], mask[level]))
-
-        else:
-            levels = ["none"]
-            feats = [self.forward_one(x, meta, mask)]
-
-        feats = torch.concatenate(feats, 1)
-        if self.mid_transformer is not None:
-            feats = self.mid_transformer(feats)
-
-        out_keys = [f"{cond}_{lvl}" for lvl in enumerate(levels) for cond in constants.CONDITIONS_COMPLETE]
+        levels = list(x)
+        sides = list(x[levels[0]])
+        feats = {}
+        for level in levels:
+            level_feats = {}
+            for side in sides:
+                level_feats[side] = self.forward_one(x[level][side], meta[level][side], mask[level][side])
+            feats[level] = level_feats
 
         outs = {}
-        for i, k in enumerate(out_keys):
-            outs[k] = self.head(feats[:, i])
+        for level in levels:
+            for c, cond in enumerate(self.conditions):
+                head = self.heads[cond]
+                if cond == "spinal_canal_stenosis":
+                    feat = torch.stack([feats[level][side][:, c] for side in sides], 0).mean(0)
+                    k = "_".join(i for i in (cond, level) if i != "any")
+                    outs[k] = head(feat)
+                else:
+                    for side in sides:
+                        k = "_".join(i for i in (side, cond, level) if i != "any")
+                        feat = feats[level][side][:, c]
+                        outs[k] = head(feat)
         return outs
 
     def training_step(self, batch, batch_idx):
-        x, meta, mask, y = batch
-        pred = self.forward(x, meta, mask)
+        *x, y = batch
+        pred = self.forward(*x)
         losses = self.train_loss(y, pred)
         loss = sum(losses.values()) / len(losses)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, meta, mask, y = batch
-        pred = self.forward(x, meta, mask)
+        *x, y = batch
+        pred = self.forward(*x)
         self.val_metric.update(y, pred)
 
     def test_step(self, batch, batch_idx):
@@ -166,6 +170,6 @@ class LightningModule(model.LightningModule):
         self.do_metric_on_epoch_end("test")
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        x, meta, mask = batch
-        pred = self.forward(x, meta, mask)
+        x = batch
+        pred = self.forward(*x)
         return pred

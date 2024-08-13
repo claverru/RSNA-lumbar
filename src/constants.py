@@ -19,13 +19,17 @@ VAL_PREDS_NAME = "val_preds.csv"
 
 BASIC_COLS = ["study_id", "series_id", "instance_number"]
 
-CONDITIONS = ["spinal", "foraminal", "subarticular"]
+CONDITIONS = ["spinal_canal_stenosis", "neural_foraminal_narrowing", "subarticular_stenosis"]
 
 SEVERITY2LABEL = {"Normal/Mild": 0, "Moderate": 1, "Severe": 2}
 
 DESCRIPTIONS = ["Sagittal T2/STIR", "Sagittal T1", "Axial T2"]
 
 LEVELS = ["l1_l2", "l2_l3", "l3_l4", "l4_l5", "l5_s1"]
+
+SIDES = ["right", "left"]
+
+LEVELS_SIDES = [f"{lvl}_{side}" for lvl in LEVELS for side in SIDES]
 
 CONDITIONS_COMPLETE = [
     "left_neural_foraminal_narrowing",

@@ -17,13 +17,13 @@ class LumbarLoss(torch.nn.Module):
     def __compute_severe_spinal_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
     ) -> float:
-        severe_spinal_true = self.get_condition_tensors(y_true_dict, "spinal", torch.stack).amax(0)
+        severe_spinal_true = self.get_condition_tensors(y_true_dict, "spinal_canal_stenosis", torch.stack).amax(0)
         is_valid = severe_spinal_true != -1
 
         if ~is_valid.any():
             return -1
 
-        severe_spinal_preds = self.get_condition_tensors(y_pred_dict, "spinal", torch.stack)
+        severe_spinal_preds = self.get_condition_tensors(y_pred_dict, "spinal_canal_stenosis", torch.stack)
         lse_first_two = severe_spinal_preds[..., :2].logsumexp(-1)
         severe_spinal_binary_preds = (severe_spinal_preds[..., 2] - lse_first_two).amax(0)
 
@@ -58,7 +58,7 @@ class LumbarLoss(torch.nn.Module):
         return self.cond_loss(pred_batch.to(torch.float), true_batch)
 
     def forward(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]) -> Dict[str, float]:
-        assert len(y_true_dict) == len(y_pred_dict)
+        assert all(k in y_true_dict for k in y_pred_dict)
         losses = {}
         for condition in self.conditions:
             losses[condition] = self.__compute_condition_loss(y_true_dict, y_pred_dict, condition)
@@ -78,8 +78,8 @@ class LumbarMetric(Metric):
         self.add_state("y_true_dicts", default=[], dist_reduce_fx="cat")
 
     def compute(self) -> Dict[str, float]:
-        y_true_dict = utils.cat_dict_tensor(self.y_true_dicts)
-        y_pred_dict = utils.cat_dict_tensor(self.y_pred_dicts)
+        y_true_dict = utils.cat_tensors(self.y_true_dicts)
+        y_pred_dict = utils.cat_tensors(self.y_pred_dicts)
 
         torch.save(y_true_dict, "true.pt")
         torch.save(y_pred_dict, "pred.pt")

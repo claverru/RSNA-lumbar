@@ -1,6 +1,5 @@
 import colorsys
 import random
-from functools import partial
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -14,12 +13,14 @@ from sklearn.model_selection import StratifiedGroupKFold
 from src import constants
 
 
-def cat_dict_tensor(
-    dicts: List[Dict[str, torch.Tensor]], f=lambda x: torch.concat(x, dim=0)
+def cat_tensors(
+    tensors: List[Union[torch.Tensor, dict]], f=lambda x: torch.concat(x, dim=0)
 ) -> Dict[str, torch.Tensor]:
+    if isinstance(tensors[0], torch.Tensor):
+        return f(tensors)
     result = {}
-    for k in dicts[0]:
-        result[k] = f([d[k] for d in dicts])
+    for k in tensors[0]:
+        result[k] = cat_tensors([d[k] for d in tensors], f=f)
     return result
 
 
@@ -66,6 +67,17 @@ def train_study2level(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def train_study2levelside(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.melt(ignore_index=False, var_name="condition_level", value_name="severity").reset_index()
+    pat = r"^(right|left)?_?(.*)_(l\d+_[l|s]\d+)$"
+    extracted = df.pop("condition_level").str.extractall(pat).reset_index(drop=True)
+    extracted[0] = extracted[0].fillna("right_left").str.split("_")
+    df[["side", "condition", "level"]] = extracted
+    df = df.explode("side")
+    df = df.pivot(index=["study_id", "level", "side"], columns="condition", values="severity")
+    return df
+
+
 def get_images_df(img_dir: Path = constants.TRAIN_IMG_DIR) -> pd.DataFrame:
     def get_record(img_path):
         return {
@@ -84,42 +96,12 @@ def get_image_path(study_id, series_id, instance_number, img_dir=constants.TRAIN
     return img_path
 
 
-def clip_scale(x: np.ndarray, n):
-    return x.clip(-n, n) / n
-
-
-norms = {
-    "ImageOrientationPatient_0": partial(clip_scale, n=1),
-    "ImageOrientationPatient_1": partial(clip_scale, n=1),
-    "ImageOrientationPatient_2": partial(clip_scale, n=1),
-    "ImageOrientationPatient_3": partial(clip_scale, n=1),
-    "ImageOrientationPatient_4": partial(clip_scale, n=1),
-    "ImageOrientationPatient_5": partial(clip_scale, n=1),
-    "ImagePositionPatient_0": partial(clip_scale, n=1000),
-    "ImagePositionPatient_1": partial(clip_scale, n=1000),
-    "ImagePositionPatient_2": partial(clip_scale, n=1000),
-    "SliceThickness": partial(clip_scale, n=6),
-    "SpacingBetweenSlices": partial(clip_scale, n=7),
-    "SliceLocation": partial(clip_scale, n=750),
-}
-
-
-def normalize_meta(df):
-    for c, f in norms.items():
-        df[c] = f(df[c].values)
-    return df[constants.BASIC_COLS + list(norms)]
-
-
 def load_desc(path: Path = constants.DESC_PATH) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
 def pad_sequences(sequences, padding_value=-100):
     return torch.nn.utils.rnn.pad_sequence(sequences, batch_first=True, padding_value=padding_value)
-
-
-def stack(x):
-    return torch.stack(x, dim=0)
 
 
 def generate_random_colors(n: int, bright: bool = True):
@@ -174,8 +156,10 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
     return train_df, val_df
 
 
-def print_tensor(tensor: Union[Dict[str, torch.Tensor], torch.Tensor]):
-    if isinstance(tensor, dict):
-        print({k: (v.shape, v.dtype) for k, v in tensor.items()})
-    else:
+def print_tensor(tensor: Union[dict, torch.Tensor]):
+    if isinstance(tensor, torch.Tensor):
         print(tensor.shape, tensor.dtype)
+    else:
+        for k, v in tensor.items():
+            print(k, end="\t")
+            print_tensor(v)

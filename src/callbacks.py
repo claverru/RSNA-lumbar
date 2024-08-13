@@ -56,7 +56,7 @@ class Writer(BasePredictionWriter):
         out_dir = Path(self.out_dir) if self.out_dir is not None else Path(trainer.logger.log_dir)
         out_path = out_dir / self.preds_name
 
-        preds = utils.cat_dict_tensor(predictions)
+        preds = utils.cat_tensors(predictions)
         cols = []
         for k in preds:
             for i in range(preds[k].shape[1]):
