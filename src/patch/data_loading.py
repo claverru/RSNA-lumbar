@@ -34,7 +34,7 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         idx = self.index[index]
-        study_id, series_id, instance_number, _ = idx
+        study_id, series_id, instance_number, *_ = idx
         img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, ".png")
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
         keypoint = self.get_keypoint(idx)
@@ -108,6 +108,13 @@ def load_keypoints(
     return df
 
 
+def load_this_train(train_path: Path = constants.TRAIN_PATH) -> pd.DataFrame:
+    df = utils.load_train(train_path)
+    df = df.melt(ignore_index=False, var_name="condition_level", value_name="severity").reset_index()
+    # df[["condition", "level"]] = df.pop("condition_level").str.extractall("^(.*)_(l\d_[l|s]\d)$").droplevel(1)
+    return df
+
+
 def load_df(
     keypoints_path: Path = constants.KEYPOINTS_PATH,
     desc_path: Path = constants.DESC_PATH,
@@ -118,8 +125,7 @@ def load_df(
 
     coor = utils.load_coor(coor_path).drop(columns=["level", "x", "y"])
 
-    train = utils.load_train(train_path)
-    train = train.melt(ignore_index=False, var_name="condition_level", value_name="severity").reset_index()
+    train = load_this_train(train_path)
 
     df = coor.merge(keypoints, how="inner", on=constants.BASIC_COLS + ["type"])
     df = df.merge(train, how="inner", on=["study_id", "condition_level"])
