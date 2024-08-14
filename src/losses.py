@@ -91,9 +91,6 @@ class LumbarMetric(Metric):
     def compute(self) -> Dict[str, float]:
         y_true_dict = utils.cat_tensors(self.y_true_dicts)
         y_pred_dict = utils.cat_tensors(self.y_pred_dicts)
-
-        torch.save(y_true_dict, "true.pt")
-        torch.save(y_pred_dict, "pred.pt")
         return self.loss_f(y_true_dict, y_pred_dict)
 
     def update(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]):
