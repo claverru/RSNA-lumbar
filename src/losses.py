@@ -7,10 +7,19 @@ from src import constants, utils
 
 
 class LumbarLoss(torch.nn.Module):
-    def __init__(self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS):
+    def __init__(
+        self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS, gamma: float = 1.0
+    ):
         super().__init__()
-        self.cond_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=torch.tensor([1.0, 2.0, 4.0]))
-        self.any_severe_spinal_loss = torch.nn.BCEWithLogitsLoss(reduction="none")
+
+        weight = torch.tensor([1.0, 2.0, 4.0])
+        if gamma == 1.0:
+            self.cond_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=weight)
+            self.any_severe_spinal_loss = torch.nn.BCEWithLogitsLoss(reduction="none")
+        else:
+            self.cond_loss = FocalLoss(gamma, ignore_index=-1, weight=weight)
+            self.any_severe_spinal_loss = FocalLoss(gamma, reduction="none", binary=True)
+
         self.do_any_severe_spinal = do_any_severe_spinal
         self.conditions = conditions
 
@@ -71,9 +80,11 @@ class LumbarMetric(Metric):
     is_differentiable = False
     higher_is_better = False
 
-    def __init__(self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS):
+    def __init__(
+        self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS, gamma: float = 1.0
+    ):
         super().__init__()
-        self.loss_f = LumbarLoss(do_any_severe_spinal, conditions)
+        self.loss_f = LumbarLoss(do_any_severe_spinal, conditions, gamma)
         self.add_state("y_pred_dicts", default=[], dist_reduce_fx="cat")
         self.add_state("y_true_dicts", default=[], dist_reduce_fx="cat")
 
@@ -91,25 +102,33 @@ class LumbarMetric(Metric):
 
 
 class FocalLoss(torch.nn.Module):
-    def __init__(self, gamma, weight=None, ignore_index=-100, reduction="mean", from_logits=True):
+    def __init__(self, gamma, weight=None, ignore_index=-100, reduction="mean", binary: bool = False):
         super().__init__()
         self.gamma = gamma
         self.ignore_index = ignore_index
         self.reduction = reduction
-        self.from_logits = from_logits
-        if from_logits:
-            self.cross = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=self.ignore_index, reduction="none")
+        self.binary = binary
+        self.ignore_index = ignore_index
+        if binary:
+            self.cross = torch.nn.BCEWithLogitsLoss(reduction="none")
         else:
-            self.cross = torch.nn.NLLLoss(weight=weight, ignore_index=self.ignore_index, reduction="none")
+            self.cross = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=self.ignore_index, reduction="none")
 
-    def forward(self, input_: torch.Tensor, target: torch.Tensor):
-        cross_entropy = self.cross(input_, target)
-        if self.from_logits:
-            input_ = input_.softmax(1)
+    def forward(self, preds: torch.Tensor, target: torch.Tensor):
+        valid = target != self.ignore_index
 
-        target = target * (target != self.ignore_index).long()
-        input_prob = torch.gather(input_, 1, target.unsqueeze(1))
-        loss = torch.pow(1 - input_prob, self.gamma) * cross_entropy
+        preds = preds[valid]
+        target = target[valid]
+
+        cross_entropy = self.cross(preds, target)
+
+        if self.binary:
+            positive_class_probas = preds.sigmoid()
+        else:
+            probas = preds.softmax(1)
+            positive_class_probas = torch.gather(probas, 1, target[..., None])
+
+        loss = torch.pow(1 - positive_class_probas, self.gamma) * cross_entropy
         if self.reduction == "mean":
             return loss.mean()
         return loss

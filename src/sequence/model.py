@@ -59,8 +59,8 @@ class LightningModule(model.LightningModule):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.train_loss = losses.LumbarLoss(train_any_severe_spinal)
-        self.val_metric = losses.LumbarMetric(True)
+        self.train_loss = losses.LumbarLoss(train_any_severe_spinal, conditions=conditions)
+        self.val_metric = losses.LumbarMetric("spinal_canal_stenosis" in conditions, conditions=conditions)
         self.backbone = patch_model.LightningModule(**image)
 
         self.conditions = conditions

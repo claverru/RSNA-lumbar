@@ -163,3 +163,9 @@ def print_tensor(tensor: Union[dict, torch.Tensor]):
         for k, v in tensor.items():
             print(k, end="\t")
             print_tensor(v)
+
+
+def load_meta(meta_path: Path = constants.META_PATH, fillna: float = 0):
+    meta = pd.read_csv(meta_path)
+    meta = meta.fillna(fillna)
+    return meta

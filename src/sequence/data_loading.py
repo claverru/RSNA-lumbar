@@ -124,12 +124,6 @@ def load_levels(levels_path: Path = constants.LEVELS_PATH):
     return df
 
 
-def load_meta(meta_path: Path = constants.META_PATH):
-    meta = pd.read_csv(meta_path)
-    meta = meta.fillna(0)
-    return meta
-
-
 def compute_xyz_world(df):
     # XYZ
     o0 = df["ImageOrientationPatient_0"].values
@@ -183,7 +177,7 @@ def load_df(
 ):
     keypoints = load_keypoints(keypoints_path, desc_path)
     levels = load_levels(levels_path)
-    meta = load_meta(meta_path)
+    meta = utils.load_meta(meta_path)
 
     # merge levels and filter
     df = pd.merge(keypoints, levels, how="left", on=constants.BASIC_COLS)
