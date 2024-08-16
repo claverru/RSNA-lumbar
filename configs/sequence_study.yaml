@@ -106,6 +106,7 @@ ckpt_path: null
 model:
   class_path: src.sequence.model.LightningModule
   init_args:
+    any_severe_spinal_smoothing: 0.1
     add_mid_attention: true
     image:
       # ckpt_path: trash/patch/checkpoints/epoch=5_val_loss=0.4559.ckpt

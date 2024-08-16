@@ -71,11 +71,12 @@ class LightningModule(model.LightningModule):
         emb_dropout: float = 0.1,
         out_dropout: float = 0.3,
         add_mid_attention: bool = False,
+        any_severe_spinal_smoothing: float = 0.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss(
-            train_any_severe_spinal, conditions=conditions, any_severe_spinal_smoothing=0.1
+            train_any_severe_spinal, conditions=conditions, any_severe_spinal_smoothing=any_severe_spinal_smoothing
         )
         self.val_metric = losses.LumbarMetric("spinal_canal_stenosis" in conditions, conditions=conditions)
         self.backbone = patch_model.LightningModule(**image)
