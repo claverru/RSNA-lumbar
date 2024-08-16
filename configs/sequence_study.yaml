@@ -106,14 +106,11 @@ ckpt_path: null
 model:
   class_path: src.sequence.model.LightningModule
   init_args:
-    any_severe_spinal_smoothing: 0.1
-    add_mid_attention: true
     image:
-      # ckpt_path: trash/patch/checkpoints/epoch=5_val_loss=0.4559.ckpt
       arch: regnetz_b16.ra3_in1k
       eval: false
       pretrained: true
-    train_any_severe_spinal: true
+    train_any_severe_spinal: false
     conditions:
     - spinal_canal_stenosis
     - neural_foraminal_narrowing
@@ -124,15 +121,27 @@ model:
     att_dropout: 0.1
     emb_dropout: 0.1
     out_dropout: 0.3
+    add_mid_attention: true
+    any_severe_spinal_smoothing: 0.0
     optimizer:
       class_path: src.ranger.Ranger
       init_args:
-        lr: 0.00001
-
+        lr: 1.0e-05
+        alpha: 0.5
+        k: 6
+        N_sma_threshhold: 5
+        betas:
+        - 0.95
+        - 0.999
+        eps: 1.0e-05
+        weight_decay: 0
+        use_gc: true
+        gc_conv_only: false
+        gc_loc: true
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
-        warmup_steps: 197
+        warmup_steps: 98
         last_epoch: -1
     interval: step
     frequency: 1
