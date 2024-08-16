@@ -135,7 +135,7 @@ model:
         last_epoch: -1
     interval: step
     frequency: 1
-    ckpt_path: lightning_logs/version_1/checkpoints/epoch=4_val_loss=0.4199.ckpt
+    ckpt_path: trash/sequence/checkpoints/epoch=4_val_loss=0.4199.ckpt
 data:
   class_path: src.sequence.data_loading.DataModule
   init_args:
