@@ -5,6 +5,7 @@ import torch
 
 from src import constants, losses, model
 from src.patch import model as patch_model
+from src.sequence.data_loading import META_COLS
 
 
 def get_proj(in_dim, out_dim, dropout=0):
@@ -44,6 +45,19 @@ class PositionalEncoding(torch.nn.Module):
         return self.dropout(x)
 
 
+class CLSEmbedding(torch.nn.Module):
+    def __init__(self, num_classes: int = constants.CONDITIONS, emb_dim: int = 512):
+        super().__init__()
+        self.cls_embs = torch.nn.Parameter(torch.randn(1, num_classes, emb_dim), requires_grad=True)
+        self.register_buffer("cls_mask", torch.zeros(1, num_classes, dtype=torch.bool))
+
+    def forward(self, x, mask):
+        B = x.shape[0]
+        x = torch.concat([self.cls_embs.repeat(B, 1, 1), x], axis=1)
+        mask = torch.concat([self.cls_mask.repeat(B, 1), mask], axis=1)
+        return x, mask
+
+
 class LightningModule(model.LightningModule):
     def __init__(
         self,
@@ -56,15 +70,19 @@ class LightningModule(model.LightningModule):
         att_dropout: float = 0.1,
         emb_dropout: float = 0.1,
         out_dropout: float = 0.3,
+        add_mid_attention: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.train_loss = losses.LumbarLoss(train_any_severe_spinal, conditions=conditions)
+        self.train_loss = losses.LumbarLoss(
+            train_any_severe_spinal, conditions=conditions, any_severe_spinal_smoothing=0.1
+        )
         self.val_metric = losses.LumbarMetric("spinal_canal_stenosis" in conditions, conditions=conditions)
         self.backbone = patch_model.LightningModule(**image)
 
         self.conditions = conditions
 
+        self.meta_norm = torch.nn.LayerNorm(len(META_COLS))
         self.meta_proj = get_proj(None, emb_dim, emb_dropout)
         self.proj = get_proj(None, emb_dim, emb_dropout)
         self.pos = PositionalEncoding(emb_dim, att_dropout, max_len=5000)
@@ -80,10 +98,14 @@ class LightningModule(model.LightningModule):
             norm_first=True,
         )
 
-        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
-        self.condition_embs = torch.nn.Parameter(torch.randn(1, len(self.conditions), emb_dim), requires_grad=True)
-        self.register_buffer("condition_embs_mask", torch.zeros(1, len(self.conditions), dtype=torch.bool))
+        if add_mid_attention:
+            self.mid_attention = model.get_encoder(emb_dim, n_heads, 1, att_dropout)
+        else:
+            self.mid_attention = None
 
+        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
+        # self.heads = get_proj(emb_dim, 3, out_dropout)
+        self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
         self.maybe_restore_checkpoint()
 
     def extract_features(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -97,17 +119,23 @@ class LightningModule(model.LightningModule):
 
     def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
         feats = self.extract_features(x, mask)
-
         feats = self.proj(feats)
+
+        meta = self.meta_norm(meta)
         meta = self.meta_proj(meta)
 
         feats = self.pos(feats)
         meta = self.pos(meta)
 
-        feats = torch.concat([self.condition_embs.repeat(feats.shape[0], 1, 1), feats], axis=1)
-        decoder_mask = torch.concat([self.condition_embs_mask.repeat(mask.shape[0], 1), mask], axis=1)
+        feats, decoder_mask = self.cls_emb(feats, mask)
 
-        out = self.transformer(src=meta, tgt=feats, src_key_padding_mask=mask, tgt_key_padding_mask=decoder_mask)
+        out = self.transformer(
+            src=meta,
+            tgt=feats,
+            src_key_padding_mask=mask,
+            tgt_key_padding_mask=decoder_mask,
+            memory_key_padding_mask=mask,
+        )
         out = out[:, : len(self.conditions)]
         return out
 
@@ -116,27 +144,33 @@ class LightningModule(model.LightningModule):
     ) -> Dict[str, torch.Tensor]:
         levels = list(x)
         sides = list(x[levels[0]])
-        feats = {}
+        feats = []
         for level in levels:
-            level_feats = {}
             for side in sides:
-                level_feats[side] = self.forward_one(x[level][side], meta[level][side], mask[level][side])
-            feats[level] = level_feats
+                feats.append(self.forward_one(x[level][side], meta[level][side], mask[level][side]))
+
+        feats = torch.concatenate(feats, 1)
+        if self.mid_attention is not None:
+            feats = self.mid_attention(feats)
 
         outs = {}
-        for level in levels:
+        for lvl, level in enumerate(levels):
             for c, cond in enumerate(self.conditions):
                 head = self.heads[cond]
                 if cond == "spinal_canal_stenosis":
-                    feat = torch.stack([feats[level][side][:, c] for side in sides], 0).mean(0)
+                    spinal_idx = [self.i(lvl, s, c) for s, _ in enumerate(sides)]
+                    feat = feats[:, spinal_idx].mean(1)
                     k = "_".join(i for i in (cond, level) if i != "any")
                     outs[k] = head(feat)
                 else:
-                    for side in sides:
+                    for s, side in enumerate(sides):
                         k = "_".join(i for i in (side, cond, level) if i != "any")
-                        feat = feats[level][side][:, c]
+                        feat = feats[:, self.i(lvl, s, c)]
                         outs[k] = head(feat)
         return outs
+
+    def i(self, lvl, s, c):
+        return lvl * len(self.conditions) * 2 + s * len(self.conditions) + c
 
     def training_step(self, batch, batch_idx):
         *x, y = batch

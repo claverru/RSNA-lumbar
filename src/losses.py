@@ -8,7 +8,11 @@ from src import constants, utils
 
 class LumbarLoss(torch.nn.Module):
     def __init__(
-        self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS, gamma: float = 1.0
+        self,
+        do_any_severe_spinal: bool = True,
+        conditions: List[str] = constants.CONDITIONS,
+        gamma: float = 1.0,
+        any_severe_spinal_smoothing: float = 0,
     ):
         super().__init__()
 
@@ -22,6 +26,7 @@ class LumbarLoss(torch.nn.Module):
 
         self.do_any_severe_spinal = do_any_severe_spinal
         self.conditions = conditions
+        self.any_severe_spinal_smoothing = any_severe_spinal_smoothing
 
     def __compute_severe_spinal_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
@@ -42,6 +47,8 @@ class LumbarLoss(torch.nn.Module):
         pred = severe_spinal_binary_preds[is_valid]
         target = severe_spinal_binary_true[is_valid]
         weight = weight[is_valid]
+
+        target = target * (1 - self.any_severe_spinal_smoothing) + (self.any_severe_spinal_smoothing / 2)
 
         severe_spinal_loss = (self.any_severe_spinal_loss(pred, target) * weight).sum() / weight.sum()
 

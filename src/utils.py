@@ -168,4 +168,74 @@ def print_tensor(tensor: Union[dict, torch.Tensor]):
 def load_meta(meta_path: Path = constants.META_PATH, fillna: float = 0):
     meta = pd.read_csv(meta_path)
     meta = meta.fillna(fillna)
+    meta = add_center(meta)
+    meta = add_relative_position(meta)
+    meta = add_normal(meta)
     return meta
+
+
+def add_center(meta: pd.DataFrame) -> pd.DataFrame:
+    meta["center_x"] = meta["Columns"] // 2
+    meta["center_y"] = meta["Rows"] // 2
+    return meta
+
+
+def add_relative_position(meta: pd.DataFrame) -> pd.DataFrame:
+    def position(x):
+        x -= x.min()
+        x /= x.max() + 1e-7
+        return x
+
+    meta["pos_x"] = meta.groupby("series_id")["ImagePositionPatient_0"].transform(position)
+    meta["pos_y"] = meta.groupby("series_id")["ImagePositionPatient_1"].transform(position)
+    meta["pos_z"] = meta.groupby("series_id")["ImagePositionPatient_2"].transform(position)
+
+    return meta
+
+
+def add_sides(df: pd.DataFrame) -> pd.DataFrame:
+    saggital_patient_side = df["pos_x"].apply(lambda x: "right" if x < 0.5 else "left")
+    axial_patient_side = df["type"].map(lambda x: {"right": "left", "left": "right"}.get(x, x))
+    df["side"] = axial_patient_side.where(axial_patient_side.isin(["right", "left"]), saggital_patient_side)
+    return df
+
+
+def add_normal(meta: pd.DataFrame) -> pd.DataFrame:
+    orientation = meta[
+        [
+            "ImageOrientationPatient_0",
+            "ImageOrientationPatient_1",
+            "ImageOrientationPatient_2",
+            "ImageOrientationPatient_3",
+            "ImageOrientationPatient_4",
+            "ImageOrientationPatient_5",
+        ]
+    ].values.reshape(-1, 2, 3)
+    meta[["nx", "ny", "nz"]] = np.cross(orientation[:, 0], orientation[:, 1])
+    return meta
+
+
+def add_xyz_world(df: pd.DataFrame, x_col: str = "x", y_col: str = "y", suffix: str = "") -> pd.DataFrame:
+    o0 = df["ImageOrientationPatient_0"].values
+
+    o1 = df["ImageOrientationPatient_1"].values
+    o2 = df["ImageOrientationPatient_2"].values
+    o3 = df["ImageOrientationPatient_3"].values
+    o4 = df["ImageOrientationPatient_4"].values
+    o5 = df["ImageOrientationPatient_5"].values
+
+    delx = df["PixelSpacing_0"].values
+    dely = df["PixelSpacing_1"].values
+
+    sx = df["ImagePositionPatient_0"].values
+    sy = df["ImagePositionPatient_1"].values
+    sz = df["ImagePositionPatient_2"].values
+
+    x = df[x_col] * df["Columns"]
+    y = df[y_col] * df["Rows"]
+
+    df["xx" + suffix] = o0 * delx * x + o3 * dely * y + sx
+    df["yy" + suffix] = o1 * delx * x + o4 * dely * y + sy
+    df["zz" + suffix] = o2 * delx * x + o5 * dely * y + sz
+
+    return df

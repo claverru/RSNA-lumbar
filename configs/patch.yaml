@@ -25,8 +25,8 @@ data:
   init_args:
     img_dir: mount/train_images_clip
     batch_size: 128
-    img_size: 112
-    size_ratio: 9
+    img_size: 96
+    size_ratio: 96
 
 trainer:
   accumulate_grad_batches: 1

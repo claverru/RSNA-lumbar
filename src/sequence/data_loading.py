@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 
 from src import constants, utils
-from src.patch.data_loading import get_aug_transforms, get_patch, get_transforms, load_keypoints
+from src.patch.data_loading import get_aug_transforms, get_patch, get_transforms, load_keypoints, resize_spacing
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -45,9 +45,9 @@ class Dataset(torch.utils.data.Dataset):
 
         chunk = self.df.loc[(study_id, level, side)]
         patches = []
-        for img_path, gdf in chunk.groupby(level=0):
+        for img_path, gdf in chunk.groupby(level=0)[["x", "y"]]:
             img = imgs[img_path]
-            patches += [get_patch(img, keypoint, self.size_ratio) for keypoint in gdf.values]
+            patches += [get_patch(img, x, y, self.size_ratio) for x, y in gdf.values]
 
         patches = [self.transforms(image=patch)["image"] for patch in patches]
         patches = torch.stack(patches, 0)
@@ -62,8 +62,14 @@ class Dataset(torch.utils.data.Dataset):
         return meta
 
     def get_images(self, idx):
-        img_paths = set(i[-1] if isinstance(i, tuple) else i for i in self.df.loc[idx].index)
-        return {img_path: cv2.imread(img_path, cv2.IMREAD_GRAYSCALE) for img_path in img_paths}
+        chunk = self.df.loc[idx].reset_index()[
+            ["img_path", "PixelSpacing_0", "PixelSpacing_1", "TargetSpacing_0", "TargetSpacing_1"]
+        ]
+        imgs = {}
+        for img_path, spacing_x, spacing_y, target_spacing_x, target_spacing_y in set(chunk.itertuples(index=False)):
+            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+            imgs[img_path] = resize_spacing(img, spacing_x, spacing_y, target_spacing_x, target_spacing_y)
+        return imgs
 
     def __getitem__(self, index):
         idx = self.index[index]
@@ -111,61 +117,51 @@ def collate_fn(data):
 
 def load_levels(levels_path: Path = constants.LEVELS_PATH):
     df = pd.read_parquet(levels_path)
-    probas_cols = [c for c in df.columns if c.startswith("probas")]
-    df = df[constants.BASIC_COLS + probas_cols]
-    df["level_id"] = df[probas_cols].apply(lambda x: np.where(x.values > 0.3)[0], axis=1)
-    df["level_proba"] = df[probas_cols].apply(lambda x: x.values[x.values > 0.3], axis=1)
-    df = df.explode(["level_id", "level_proba"])
-    df = df.dropna()
-    df["level_proba"] = df["level_proba"].astype(float)
+    target = np.linspace(0, 4, 5)
+    df["level_id"] = df["pred_f0"].apply(lambda x: np.where(np.abs(x * 4 - target) <= 0.6)[0])
+    df = df.explode("level_id")
+    df["level_distance"] = df.pop("pred_f0") - df["level_id"] / 4
+    df["level_distance"] = df["level_distance"].astype(float)
     df["level"] = df.pop("level_id").map(lambda x: constants.LEVELS[x])
     df = df.sort_values(constants.BASIC_COLS)
-    df = df.drop(columns=probas_cols)
     return df
 
 
-def compute_xyz_world(df):
-    # XYZ
-    o0 = df["ImageOrientationPatient_0"].values
-
-    o1 = df["ImageOrientationPatient_1"].values
-    o2 = df["ImageOrientationPatient_2"].values
-    o3 = df["ImageOrientationPatient_3"].values
-    o4 = df["ImageOrientationPatient_4"].values
-    o5 = df["ImageOrientationPatient_5"].values
-
-    delx = df["PixelSpacing_0"].values
-    dely = df["PixelSpacing_1"].values
-
-    sx = df["ImagePositionPatient_0"].values
-    sy = df["ImagePositionPatient_1"].values
-    sz = df["ImagePositionPatient_2"].values
-
-    x = df["x"] * df["Columns"]
-    y = df["y"] * df["Rows"]
-
-    df["xx"] = o0 * delx * x + o3 * dely * y + sx
-    df["yy"] = o1 * delx * x + o4 * dely * y + sy
-    df["zz"] = o2 * delx * x + o5 * dely * y + sz
-
-    # Position
-    def position(x):
-        x -= x.min()
-        x /= x.max() + 1e-7
-        return x
-
-    df["pos_x"] = df.groupby("series_id")["ImagePositionPatient_0"].transform(position).abs()  ## make it symmetric!!
-    df["pos_y"] = df.groupby("series_id")["ImagePositionPatient_1"].transform(position)
-    df["pos_z"] = df.groupby("series_id")["ImagePositionPatient_2"].transform(position)
-
-    return df
-
-
-def add_sides(df: pd.DataFrame) -> pd.DataFrame:
-    saggital_patient_side = df["pos_x"].apply(lambda x: "right" if x < 0.5 else "left")
-    axial_patient_side = df.pop("type").map(lambda x: {"right": "left", "left": "right"}.get(x, x))
-    df["side"] = axial_patient_side.where(axial_patient_side.isin(["right", "left"]), saggital_patient_side)
-    return df
+META_COLS = [
+    "level_distance",
+    "x",
+    "y",
+    "xx",
+    "yy",
+    "zz",
+    "xx_center",
+    "yy_center",
+    "zz_center",
+    "pos_x",
+    "pos_y",
+    "pos_z",
+    "nx",
+    "ny",
+    "nz",
+    "center_x",
+    "center_y",
+    "SliceLocation",
+    "SliceThickness",
+    # "ImageOrientationPatient_0",
+    # "ImageOrientationPatient_1",
+    # "ImageOrientationPatient_2",
+    # "ImageOrientationPatient_3",
+    # "ImageOrientationPatient_4",
+    # "ImageOrientationPatient_5",
+    # "PixelSpacing_0",
+    # "PixelSpacing_1",
+    # "ImagePositionPatient_0",
+    # "ImagePositionPatient_1",
+    # "ImagePositionPatient_2",
+    # "BitsStored",
+    # "Columns",
+    # "Rows",
+]
 
 
 def load_df(
@@ -175,14 +171,14 @@ def load_df(
     meta_path: Path = constants.META_PATH,
     img_dir: Path = constants.TRAIN_IMG_DIR,
 ):
-    keypoints = load_keypoints(keypoints_path, desc_path)
+    keypoints = load_keypoints(keypoints_path, desc_path, meta_path)
     levels = load_levels(levels_path)
-    meta = utils.load_meta(meta_path)
+    meta = utils.load_meta(meta_path).drop(columns=["PixelSpacing_0", "PixelSpacing_1"])
 
     # merge levels and filter
     df = pd.merge(keypoints, levels, how="left", on=constants.BASIC_COLS)
     df["level"] = df["type"].where(df["level"].isna(), df.pop("level"))
-    df["level_proba"] = df["level_proba"].fillna(1)
+    df["level_distance"] = df["level_distance"].fillna(0.0)
 
     # add img path
     df["img_path"] = df[constants.BASIC_COLS].apply(
@@ -191,10 +187,11 @@ def load_df(
 
     # merge meta
     df = df.merge(meta, how="inner", on=constants.BASIC_COLS)
-    df = compute_xyz_world(df)
-
-    # add sides
-    df = add_sides(df)
+    df = utils.add_xyz_world(df)
+    df = utils.add_xyz_world(df, x_col="center_x", y_col="center_y", suffix="_center")
+    df = utils.add_normal(df)
+    df = utils.add_relative_position(df)
+    df = utils.add_sides(df)
 
     # sort, clean and index
     df = df.sort_values(constants.BASIC_COLS)
@@ -202,8 +199,8 @@ def load_df(
     df = df.drop(columns=constants.BASIC_COLS[1:])
     df = df.set_index(["study_id", "level", "side", "img_path"]).sort_index()
 
-    x = df[["x", "y"]]
-    new_meta = df[["xx", "yy", "zz", "level_proba", "pos_x", "pos_y", "pos_z"]].droplevel(-1)
+    x = df[["x", "y", "PixelSpacing_0", "PixelSpacing_1", "TargetSpacing_0", "TargetSpacing_1"]]
+    new_meta = df[META_COLS].droplevel(-1)
 
     print("Data loaded")
 

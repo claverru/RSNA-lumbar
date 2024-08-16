@@ -29,7 +29,7 @@ class Dataset(torch.utils.data.Dataset):
             return None
         return self.train.loc[idx].apply(torch.tensor).to_dict()
 
-    def get_keypoint(self, idx):
+    def get_image_params(self, idx):
         return self.df.loc[idx].values
 
     def __getitem__(self, index):
@@ -37,19 +37,31 @@ class Dataset(torch.utils.data.Dataset):
         study_id, series_id, instance_number, *_ = idx
         img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, ".png")
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
-        keypoint = self.get_keypoint(idx)
-        patch = get_patch(img, keypoint, self.size_ratio)
+        x, y, spacing_x, spacing_y, target_spacing_x, target_spacing_y = self.get_image_params(idx)
+        img = resize_spacing(img, spacing_x, spacing_y, target_spacing_x, target_spacing_y)
+        patch = get_patch(img, x, y, self.size_ratio)
         X = self.transforms(image=patch)["image"]
         target = self.get_target(idx)
 
         return X, target
 
 
-def get_patch(img, keypoint, size_ratio):
+def resize_spacing(
+    img: np.ndarray, spacing_x: float, spacing_y: float, target_spacing_x: float, target_spacing_y: float
+) -> np.ndarray:
     h, w = img.shape
-    half_side = max(h, w) // size_ratio
-    x, y = keypoint
-    x, y = (int(x * img.shape[1]), int(y * img.shape[0]))
+    img = cv2.resize(
+        img,
+        (int(spacing_x / target_spacing_x * w), int(spacing_y / target_spacing_y * h)),
+        interpolation=cv2.INTER_CUBIC,
+    )
+    return img
+
+
+def get_patch(img: np.ndarray, x: float, y: float, patch_size: int = 96) -> np.ndarray:
+    h, w = img.shape
+    x, y = int(x * w), int(y * h)
+    half_side = patch_size // 2
     xmin, ymin, xmax, ymax = x - half_side, y - half_side, x + half_side, y + half_side
     xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, w), min(ymax, h)
     patch = img[ymin:ymax, xmin:xmax]
@@ -59,7 +71,7 @@ def get_patch(img, keypoint, size_ratio):
 def get_transforms(img_size):
     return A.Compose(
         [
-            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
+            A.PadIfNeeded(img_size, img_size),
             A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ]
@@ -69,12 +81,12 @@ def get_transforms(img_size):
 def get_aug_transforms(img_size):
     return A.Compose(
         [
-            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
+            A.PadIfNeeded(img_size, img_size, position="random"),
             A.HorizontalFlip(p=0.5),
-            A.Affine(rotate=30, shear=25, translate_percent=0.2, scale=(0.8, 1.2), p=0.3),
-            A.Perspective(0.2),
-            A.GaussNoise(var_limit=0.05, mean=0, p=0.2),
-            A.MotionBlur(blur_limit=(3, 7), p=0.2),
+            A.Affine(rotate=25, shear=25, translate_percent=0.15, scale=(0.8, 1.2), p=0.3),
+            A.Perspective(0.1, p=0.5),
+            A.GaussNoise(var_limit=30, noise_scale_factor=0.80, mean=0, p=0.5),
+            A.MotionBlur(blur_limit=(3, 7), p=0.5),
             A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ]
@@ -82,7 +94,9 @@ def get_aug_transforms(img_size):
 
 
 def load_keypoints(
-    keypoints_path: Path = constants.KEYPOINTS_PATH, desc_path: Path = constants.DESC_PATH
+    keypoints_path: Path = constants.KEYPOINTS_PATH,
+    desc_path: Path = constants.DESC_PATH,
+    meta_path: Path = constants.META_PATH,
 ) -> pd.DataFrame:
     # reshape keypoints
     df = pd.read_parquet(keypoints_path)
@@ -103,8 +117,19 @@ def load_keypoints(
     is_levels = df["type"].isin(constants.LEVELS)
     is_sides = ~is_levels
     df = df[(is_axial & is_sides) | (is_sagittal & is_levels)]
-    df = df.drop(columns="series_description").reset_index(drop=True)
 
+    # load meta and add spacing
+    meta = utils.load_meta(meta_path)[constants.BASIC_COLS + ["PixelSpacing_0", "PixelSpacing_1"]]
+    df = df.merge(meta, how="inner", on=constants.BASIC_COLS)
+    df["TargetSpacing_0"] = df["series_description"].map(
+        {"Axial T2": 0.500000, "Sagittal T1": 0.683594, "Sagittal T2/STIR": 0.580357}
+    )
+    df["TargetSpacing_1"] = df["series_description"].map(
+        {"Axial T2": 0.500000, "Sagittal T1": 0.683594, "Sagittal T2/STIR": 0.580357}
+    )
+
+    # final cleaning
+    df = df.drop(columns="series_description").reset_index(drop=True)
     return df
 
 
@@ -120,25 +145,31 @@ def load_df(
     desc_path: Path = constants.DESC_PATH,
     coor_path: Path = constants.COOR_PATH,
     train_path: Path = constants.TRAIN_PATH,
+    meta_path: Path = constants.META_PATH,
 ):
     keypoints = load_keypoints(keypoints_path, desc_path)
-
     coor = utils.load_coor(coor_path).drop(columns=["level", "x", "y"])
-
     train = load_this_train(train_path)
 
     df = coor.merge(keypoints, how="inner", on=constants.BASIC_COLS + ["type"])
     df = df.merge(train, how="inner", on=["study_id", "condition_level"])
-    df = df[constants.BASIC_COLS + ["x", "y", "condition", "severity", "type"]]
+
+    # set X
+    x = df[
+        constants.BASIC_COLS
+        + ["type", "x", "y", "PixelSpacing_0", "PixelSpacing_1", "TargetSpacing_0", "TargetSpacing_1"]
+    ].copy()
+    x = x.drop_duplicates().copy()
+    x = x.set_index(constants.BASIC_COLS + ["type"])
+
+    # set Y
+    y = df[constants.BASIC_COLS + ["type", "condition", "severity"]].copy()
 
     # Remove laterality
-    df["condition"] = df["condition"].str.extract("(" + "|".join(constants.CONDITIONS) + ")")[0]
-    df = df.groupby(constants.BASIC_COLS + ["condition", "type"], as_index=False).agg(
-        {"x": "mean", "y": "mean", "severity": "max"}
-    )
+    y["condition"] = y["condition"].str.extract("(" + "|".join(constants.CONDITIONS) + ")")[0]
+    y = y.groupby(constants.BASIC_COLS + ["condition", "type"], as_index=False)["severity"].max()  # .drop_duplicates()
 
-    y = df.pivot(index=constants.BASIC_COLS + ["type"], columns="condition", values="severity").fillna(-1).astype(int)
-    x = df[constants.BASIC_COLS + ["type", "x", "y"]].drop_duplicates().set_index(constants.BASIC_COLS + ["type"])
+    y = y.pivot(index=constants.BASIC_COLS + ["type"], columns="condition", values="severity").fillna(-1).astype(int)
 
     return x, y
 

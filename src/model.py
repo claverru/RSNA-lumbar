@@ -7,6 +7,14 @@ from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from torch.optim.lr_scheduler import _LRScheduler
 
 
+def get_proj(in_dim, out_dim, dropout=0, activation=None):
+    return torch.nn.Sequential(
+        torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
+        torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim),
+        activation if activation is not None else torch.nn.Identity(),
+    )
+
+
 class LightningModule(L.LightningModule):
     def __init__(
         self,
@@ -50,9 +58,15 @@ class LightningModule(L.LightningModule):
         }
 
 
-def get_transformer(emb_dim, n_heads, n_layers, dropout):
+def get_encoder(emb_dim, n_heads, n_layers, dropout):
     layer = torch.nn.TransformerEncoderLayer(
-        emb_dim, n_heads, dropout=dropout, dim_feedforward=emb_dim * 2, batch_first=True, norm_first=True
+        emb_dim,
+        n_heads,
+        dropout=dropout,
+        dim_feedforward=emb_dim * 2,
+        activation="gelu",
+        batch_first=True,
+        norm_first=True,
     )
     encoder = torch.nn.TransformerEncoder(layer, n_layers, norm=torch.nn.LayerNorm(emb_dim), enable_nested_tensor=False)
     return encoder
