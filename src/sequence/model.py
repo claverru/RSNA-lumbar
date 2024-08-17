@@ -45,6 +45,23 @@ class PositionalEncoding(torch.nn.Module):
         return self.dropout(x)
 
 
+class LevelSideEmbedding(torch.nn.Module):
+    def __init__(self, n_conditions: int, emb_dim: int):
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.C = n_conditions
+        self.L = len(constants.LEVELS)
+        self.S = len(constants.SIDES)
+        self.level_emb = torch.nn.Parameter(torch.randn(1, self.L, 1, emb_dim) / 100, requires_grad=True)
+        self.side_emb = torch.nn.Parameter(torch.randn(1, self.S, 1, emb_dim) / 100, requires_grad=True)
+
+    def forward(self, x: torch.Tensor):
+        B = x.shape[0]
+        level_emb = self.level_emb.repeat(B, 1, self.S * self.C, 1).flatten(1, 2)
+        side_emb = self.side_emb.repeat(B, self.L, self.C, 1).flatten(1, 2)
+        return x + level_emb + side_emb
+
+
 class CLSEmbedding(torch.nn.Module):
     def __init__(self, num_classes: int = constants.CONDITIONS, emb_dim: int = 512):
         super().__init__()
@@ -100,6 +117,9 @@ class LightningModule(model.LightningModule):
         )
 
         if add_mid_attention:
+            # self.mid_attention = torch.nn.Sequential(
+            #     LevelSideEmbedding(len(conditions), emb_dim), model.get_encoder(emb_dim, n_heads, 1, att_dropout)
+            # )
             self.mid_attention = model.get_encoder(emb_dim, n_heads, 1, att_dropout)
         else:
             self.mid_attention = None

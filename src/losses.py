@@ -19,14 +19,13 @@ class LumbarLoss(torch.nn.Module):
         weight = torch.tensor([1.0, 2.0, 4.0])
         if gamma == 1.0:
             self.cond_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=weight)
-            self.any_severe_spinal_loss = torch.nn.BCEWithLogitsLoss(reduction="none")
+            self.any_severe_spinal_loss = BCEWithLogitsLossSmoothed(any_severe_spinal_smoothing, reduction="none")
         else:
             self.cond_loss = FocalLoss(gamma, ignore_index=-1, weight=weight)
             self.any_severe_spinal_loss = FocalLoss(gamma, reduction="none", binary=True)
 
         self.do_any_severe_spinal = do_any_severe_spinal
         self.conditions = conditions
-        self.any_severe_spinal_smoothing = any_severe_spinal_smoothing
 
     def __compute_severe_spinal_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
@@ -47,8 +46,6 @@ class LumbarLoss(torch.nn.Module):
         pred = severe_spinal_binary_preds[is_valid]
         target = severe_spinal_binary_true[is_valid]
         weight = weight[is_valid]
-
-        target = target * (1 - self.any_severe_spinal_smoothing) + (self.any_severe_spinal_smoothing / 2)
 
         severe_spinal_loss = (self.any_severe_spinal_loss(pred, target) * weight).sum() / weight.sum()
 
@@ -136,3 +133,13 @@ class FocalLoss(torch.nn.Module):
         if self.reduction == "mean":
             return loss.mean()
         return loss
+
+
+class BCEWithLogitsLossSmoothed(torch.nn.BCEWithLogitsLoss):
+    def __init__(self, smoothing: float = 0.0, **kwargs):
+        super().__init__(**kwargs)
+        self.smoothing = smoothing
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor):
+        target = target * (1 - self.smoothing) + (self.smoothing / 2)
+        return super().forward(pred, target)
