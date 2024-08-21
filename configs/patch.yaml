@@ -1,64 +1,143 @@
+# lightning.pytorch==2.2.5
+seed_everything: 128
+trainer:
+  accelerator: gpu
+  strategy: auto
+  devices: auto
+  num_nodes: 1
+  precision: 16-mixed
+  logger:
+    class_path: src.callbacks.CustomLogger
+    init_args:
+      train_c: train_loss_epoch
+      val_c: val_loss
+      save_dir: lightning_logs/
+      name: ''
+      version: null
+      prefix: ''
+      flush_logs_every_n_steps: 100
+  callbacks:
+  - class_path: lightning.pytorch.callbacks.EarlyStopping
+    init_args:
+      monitor: val_loss
+      min_delta: 0.0
+      patience: 3
+      verbose: false
+      mode: min
+      strict: true
+      check_finite: true
+      stopping_threshold: null
+      divergence_threshold: null
+      check_on_train_epoch_end: null
+      log_rank_zero_only: false
+  - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: null
+      filename: '{epoch}_{val_loss:.4f}'
+      monitor: val_loss
+      verbose: false
+      save_last: null
+      save_top_k: 1
+      save_weights_only: false
+      mode: min
+      auto_insert_metric_name: true
+      every_n_train_steps: null
+      train_time_interval: null
+      every_n_epochs: null
+      save_on_train_epoch_end: null
+      enable_version_counter: true
+  - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: epoch
+      log_momentum: false
+      log_weight_decay: false
+  - class_path: src.callbacks.Writer
+    init_args:
+      out_dir: null
+      preds_name: preds.parquet
+  - class_path: src.callbacks.CustomBackboneFinetuning
+    init_args:
+      unfreeze_at_epoch: 0
+      unfreeze_bn: true
+      backbone_names:
+      - backbone
+  fast_dev_run: false
+  max_epochs: 12
+  min_epochs: null
+  max_steps: -1
+  min_steps: null
+  max_time: null
+  limit_train_batches: null
+  limit_val_batches: null
+  limit_test_batches: null
+  limit_predict_batches: null
+  overfit_batches: 0.0
+  val_check_interval: null
+  check_val_every_n_epoch: 1
+  num_sanity_val_steps: null
+  log_every_n_steps: null
+  enable_checkpointing: true
+  enable_progress_bar: null
+  enable_model_summary: null
+  accumulate_grad_batches: 1
+  gradient_clip_val: null
+  gradient_clip_algorithm: null
+  deterministic: null
+  benchmark: null
+  inference_mode: true
+  use_distributed_sampler: true
+  profiler: null
+  detect_anomaly: false
+  barebones: false
+  plugins: null
+  sync_batchnorm: false
+  reload_dataloaders_every_n_epochs: 0
+  default_root_dir: null
 monitor: val_loss
 monitor_mode: min
-seed_everything: 128
-
+ckpt_path: null
 model:
   class_path: src.patch.model.LightningModule
   init_args:
     arch: regnetz_b16.ra3_in1k
-    eval: True
-    pretrained: True
-    do_any_severe_spinal: False
-    linear_dropout: 0.3
+    linear_dropout: 0.5
+    pretrained: true
+    eval: true
+    do_any_severe_spinal: false
     optimizer:
       class_path: torch.optim.Adam
       init_args:
-        lr: 9e-5
+        lr: 0.0003
+        betas:
+        - 0.9
+        - 0.999
+        eps: 1.0e-08
+        weight_decay: 0.0
+        amsgrad: false
+        foreach: null
+        maximize: false
+        capturable: false
+        differentiable: false
+        fused: null
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
-        warmup_steps: 304
+        warmup_steps: 608
+        last_epoch: -1
     interval: step
-
+    frequency: 1
+    ckpt_path: null
 data:
   class_path: src.patch.data_loading.DataModule
   init_args:
-    img_dir: mount/train_images_clip
-    batch_size: 128
+    keypoints_path: data/preds_keypoints.parquet
+    coor_path: data/train_label_coordinates.csv
+    train_path: data/train.csv
+    desc_path: data/train_series_descriptions.csv
+    meta_path: data/metadata.csv
     img_size: 96
-    size_ratio: 96
-
-trainer:
-  accumulate_grad_batches: 1
-  logger:
-    class_path: src.callbacks.CustomLogger
-    init_args:
-      save_dir: lightning_logs/
-      name: ""
-      train_c: train_loss_epoch
-      val_c: val_loss
-  enable_checkpointing: true
-  callbacks:
-    - class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: ${monitor}
-        patience: 5
-        mode: ${monitor_mode}
-    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
-      init_args:
-        monitor: ${monitor}
-        mode: ${monitor_mode}
-        filename: '{epoch}_{${monitor}:.4f}'
-    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
-      init_args:
-        logging_interval: epoch
-    - class_path: src.callbacks.Writer
-    - class_path: src.callbacks.CustomBackboneFinetuning
-      init_args:
-        unfreeze_at_epoch: 0
-        unfreeze_bn: False
-  accelerator: gpu
-  precision: 16-mixed
-  max_epochs: 30 # to avoid crazy stuff
-
-ckpt_path: null
+    img_dir: mount/train_images_clip
+    n_splits: 5
+    this_split: 0
+    batch_size: 64
+    num_workers: 8

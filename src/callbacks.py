@@ -12,29 +12,29 @@ from src import utils
 
 
 class CustomLogger(CSVLogger):
-    def __init__(self, train_c: str = "train_loss", val_c: str = "val_loss", lr_c: str = "lr-Adam", **kwargs):
+    def __init__(self, train_c: str = "train_loss", val_c: str = "val_loss", **kwargs):
         super().__init__(**kwargs)
         self.train_c = train_c
         self.val_c = val_c
-        self.lr_c = lr_c
 
     def save_plot(self, metrics_path: Path):
         if not metrics_path.exists():
             return
 
         df = pd.read_csv(metrics_path)
-        if not (self.val_c in df.columns and self.train_c in df.columns and self.lr_c in df.columns):
+        if not (self.val_c in df.columns and self.train_c in df.columns):
             return
 
         train = df[self.train_c].dropna().reset_index(drop=True)
         val = df[self.val_c].dropna().reset_index(drop=True)
-        lr = df[self.lr_c].dropna().reset_index(drop=True).iloc[: len(val)]
+        lr_c = [c for c in df.columns if "lr" in c][0]
+        lr = df[lr_c].dropna().reset_index(drop=True).iloc[: len(val)]
         fig, axes = plt.subplots(nrows=2)
         axes[0].plot(train, label=self.train_c)
         axes[0].plot(val, label=self.val_c)
         axes[0].hlines(val.min(), 0, len(val) - 1, color="orange", linestyle=":")
         axes[0].legend(loc="upper right")
-        axes[1].plot(lr, color="red", linestyle="--", label=self.lr_c)
+        axes[1].plot(lr, color="red", linestyle="--", label=lr_c)
         axes[1].legend(loc="upper right")
         plt.savefig(metrics_path.with_suffix(".png"))
         plt.clf()

@@ -1,6 +1,0 @@
-model	top1	top1_err	top5	top5_err	param_count	img_size	crop_pct	interpolation
-
-eva02_base_patch14_448.mim_in22k_ft_in22k_in1k	88.690	11.310	98.724	1.276	87.12	448	1.000	bicubic
-densenet161.tv_in1k	77.358	22.642	93.642	6.358	28.68	224	0.875	bicubic
-densenetblur121d.ra_in1k	77.322	22.678	93.788	6.212	8.00	288	0.950	bicubic
-densenet201.tv_in1k	77.286	22.714	93.480	6.520	20.01	224	0.875	bicubic

@@ -70,5 +70,5 @@ class LightningModule(model.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x = batch
-        pred = self.forward(x)
+        pred = self.forward_train(x)
         return pred
