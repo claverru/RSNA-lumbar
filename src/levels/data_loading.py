@@ -89,9 +89,16 @@ def get_aug_transforms(img_size):
         [
             A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
             A.HorizontalFlip(p=0.5),
-            A.Affine(rotate=15, shear=15, translate_percent=0.15, scale=(0.8, 1.2), p=0.3),
-            A.Perspective(0.1, p=0.5),
-            A.GaussNoise(var_limit=30, noise_scale_factor=0.80, mean=0, p=0.5),
+            A.Affine(
+                rotate=(-30, 30),
+                shear=(-25, 25),
+                translate_percent=0.15,
+                scale=(0.8, 1.2),
+                interpolation=cv2.INTER_CUBIC,
+                p=0.5,
+            ),
+            A.Perspective(0.2, interpolation=cv2.INTER_CUBIC, p=0.5),
+            A.GaussNoise(var_limit=30, noise_scale_factor=0.90, mean=0, p=0.5),
             A.MotionBlur(blur_limit=(3, 7), p=0.5),
             A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
@@ -114,7 +121,7 @@ META_COLS = [
 
 
 def load_this_meta(meta_path: Path = constants.META_PATH) -> pd.DataFrame:
-    meta = utils.load_meta(meta_path)
+    meta = utils.load_meta(meta_path, with_center=True, with_relative_position=True, with_normal=True)
     meta = utils.add_xyz_world(meta, x_col="center_x", y_col="center_y", suffix="_center")
     meta = meta[constants.BASIC_COLS + META_COLS]
     return meta
