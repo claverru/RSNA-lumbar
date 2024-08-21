@@ -101,6 +101,7 @@ class LightningModule(model.LightningModule):
         self.conditions = conditions
 
         self.meta_norm = torch.nn.LayerNorm(len(META_COLS))
+        self.feats_norm = torch.nn.LayerNorm(self.backbone.backbone.num_features)
         self.meta_proj = get_proj(None, emb_dim, emb_dropout)
         self.proj = get_proj(None, emb_dim, emb_dropout)
         self.pos = PositionalEncoding(emb_dim, att_dropout, max_len=5000)
@@ -140,9 +141,10 @@ class LightningModule(model.LightningModule):
 
     def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
         feats = self.extract_features(x, mask)
+        # feats = self.feats_norm(feats)
         feats = self.proj(feats)
 
-        meta = self.meta_norm(meta)
+        # meta = self.meta_norm(meta)
         meta = self.meta_proj(meta)
 
         feats = self.pos(feats)
@@ -179,8 +181,8 @@ class LightningModule(model.LightningModule):
             for c, cond in enumerate(self.conditions):
                 head = self.heads[cond]
                 if cond == "spinal_canal_stenosis":
-                    spinal_idx = [self.i(lvl, s, c) for s, _ in enumerate(sides)]
-                    feat = feats[:, spinal_idx].mean(1)
+                    spinal_ids = [self.i(lvl, s, c) for s, _ in enumerate(sides)]
+                    feat = feats[:, spinal_ids].mean(1)
                     k = "_".join(i for i in (cond, level) if i != "any")
                     outs[k] = head(feat)
                 else:

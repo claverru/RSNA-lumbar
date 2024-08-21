@@ -11,7 +11,6 @@ trainer:
     init_args:
       train_c: train_loss_epoch
       val_c: val_loss
-      lr_c: lr-AdamW
       save_dir: lightning_logs/
       name: ''
       version: null
@@ -63,7 +62,7 @@ trainer:
       backbone_names:
       - backbone
   fast_dev_run: false
-  max_epochs: 10000
+  max_epochs: 10
   min_epochs: null
   max_steps: -1
   min_steps: null
@@ -100,11 +99,10 @@ ckpt_path: null
 model:
   class_path: src.sequence.model.LightningModule
   init_args:
-    add_mid_attention: false
     image:
-      ckpt_path: null
+      ckpt_path: checkpoints/patch/checkpoints/epoch=8_val_loss=0.4503.ckpt
       arch: regnetz_b16.ra3_in1k
-      eval: false
+      eval: true
       pretrained: true
     train_any_severe_spinal: false
     conditions:
@@ -112,19 +110,21 @@ model:
     - neural_foraminal_narrowing
     - subarticular_stenosis
     emb_dim: 512
-    n_heads: 4
+    n_heads: 8
     n_layers: 6
     att_dropout: 0.1
     emb_dropout: 0.1
     out_dropout: 0.3
+    add_mid_attention: false
+    any_severe_spinal_smoothing: 0.0
     optimizer:
-      class_path: src.ranger.Ranger
+      class_path: torch.optim.AdamW
       init_args:
-        lr: 0.0001
+        lr: 1e-4
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
-        warmup_steps: 987
+        warmup_steps: 1481
         last_epoch: -1
     interval: step
     frequency: 1
@@ -139,7 +139,6 @@ data:
     levels_path: data/preds_levels.parquet
     meta_path: data/metadata.csv
     img_size: 96
-    size_ratio: 96
     img_dir: mount/train_images_clip
     n_splits: 5
     this_split: 0

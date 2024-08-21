@@ -2,14 +2,14 @@ from pathlib import Path
 from typing import List, Tuple
 
 import albumentations as A
-import cv2
 import lightning as L
 import numpy as np
 import pandas as pd
 import torch
 
 from src import constants, utils
-from src.patch.data_loading import get_aug_transforms, get_patch, get_transforms, load_keypoints, resize_spacing
+from src.patch.data_loading import get_aug_transforms, get_transforms, load_keypoints
+from src.patch.utils import PLANE2SPACING, Image, Keypoint, Spacing, angle_crop_size
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -18,7 +18,7 @@ class Dataset(torch.utils.data.Dataset):
         train: pd.DataFrame,
         df: pd.DataFrame,
         meta: pd.DataFrame,
-        size_ratio: int,
+        img_size: int,
         transforms: A.Compose,
     ):
         self.train = train
@@ -26,7 +26,7 @@ class Dataset(torch.utils.data.Dataset):
         self.meta = meta
         self.index = train.index.unique()
         self.transforms = transforms
-        self.size_ratio = size_ratio
+        self.img_size = img_size
         self.study_level_side_index = set(meta.index)
 
     def __len__(self):
@@ -39,17 +39,19 @@ class Dataset(torch.utils.data.Dataset):
 
     def get_patches(self, study_id, level, side, imgs) -> torch.Tensor:
         if (study_id, level, side) not in self.study_level_side_index:
-            img = np.zeros((200, 200), dtype=np.uint8)
-            patch = self.transforms(image=img)["image"][None, ...]
-            return patch
+            img = np.zeros((128, 128), dtype=np.uint8)
+            patches = self.transforms(image=img)["image"][None, ...]
+            return patches
 
-        chunk = self.df.loc[(study_id, level, side)]
+        chunk = self.df.loc[(study_id, level, side), ["img_path", "series_description", "x", "y", "angle"]]
         patches = []
-        for img_path, gdf in chunk.groupby(level=0)[["x", "y"]]:
+        for _, (img_path, plane, x, y, angle) in chunk.iterrows():
             img = imgs[img_path]
-            patches += [get_patch(img, x, y, self.size_ratio) for x, y in gdf.values]
+            kp = Keypoint(x, y)
+            patch = angle_crop_size(img, kp, angle, self.img_size, plane)
+            patch = self.transforms(image=patch)["image"]
+            patches.append(patch)
 
-        patches = [self.transforms(image=patch)["image"] for patch in patches]
         patches = torch.stack(patches, 0)
         return patches
 
@@ -62,13 +64,16 @@ class Dataset(torch.utils.data.Dataset):
         return meta
 
     def get_images(self, idx):
-        chunk = self.df.loc[idx].reset_index()[
-            ["img_path", "PixelSpacing_0", "PixelSpacing_1", "TargetSpacing_0", "TargetSpacing_1"]
-        ]
+        chunk = self.df.loc[idx][
+            ["series_description", "img_path", "PixelSpacing_0", "PixelSpacing_1"]
+        ].drop_duplicates()
         imgs = {}
-        for img_path, spacing_x, spacing_y, target_spacing_x, target_spacing_y in set(chunk.itertuples(index=False)):
-            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-            imgs[img_path] = resize_spacing(img, spacing_x, spacing_y, target_spacing_x, target_spacing_y)
+        for _, (plane, img_path, spacing_x, spacing_y) in chunk.iterrows():
+            spacing = Spacing(spacing_x, spacing_y)
+            img = Image.from_path(img_path, spacing=spacing)
+            target_spacing = Spacing(PLANE2SPACING[plane], PLANE2SPACING[plane])
+            img = img.resize_spacing(target_spacing)
+            imgs[img_path] = img
         return imgs
 
     def __getitem__(self, index):
@@ -134,18 +139,18 @@ META_COLS = [
     "xx",
     "yy",
     "zz",
-    "xx_center",
-    "yy_center",
-    "zz_center",
+    # "xx_center",
+    # "yy_center",
+    # "zz_center",
     "pos_x",
     "pos_y",
     "pos_z",
     "nx",
     "ny",
     "nz",
-    "center_x",
-    "center_y",
-    "SliceLocation",
+    # "center_x",
+    # "center_y",
+    # "SliceLocation",
     "SliceThickness",
     # "ImageOrientationPatient_0",
     # "ImageOrientationPatient_1",
@@ -164,6 +169,19 @@ META_COLS = [
 ]
 
 
+def process_world(meta, suf=""):
+    meta["xx" + suf] = meta.groupby(level=[0, 1, 2])["xx" + suf].transform(lambda x: x if x.mean() > 0 else -x) / 10
+    meta["yy" + suf] = meta["yy" + suf] / 10
+    meta["zz" + suf] = meta.groupby(level=[0, 1, 2])["zz" + suf].transform(lambda x: x - x.min()) / 10
+    return meta
+
+
+def process_pos(meta):
+    meta["pos_x"] = (0.5 - meta["pos_x"]).abs()
+    meta["poz_z"] = meta.groupby(level=[0, 1, 2])["pos_z"].transform(lambda x: (x - x.min()) / (x.max() - x.min())) / 10
+    return meta
+
+
 def load_df(
     keypoints_path: Path = constants.KEYPOINTS_PATH,
     levels_path: Path = constants.LEVELS_PATH,
@@ -171,36 +189,32 @@ def load_df(
     meta_path: Path = constants.META_PATH,
     img_dir: Path = constants.TRAIN_IMG_DIR,
 ):
-    keypoints = load_keypoints(keypoints_path, desc_path, meta_path)
+    keypoints = load_keypoints(keypoints_path, desc_path)
     levels = load_levels(levels_path)
-    meta = utils.load_meta(meta_path).drop(columns=["PixelSpacing_0", "PixelSpacing_1"])
+    meta = utils.load_meta(meta_path, with_center=False, with_normal=True, with_relative_position=True)
+    meta["img_path"] = meta[constants.BASIC_COLS].apply(
+        lambda x: str(utils.get_image_path(*x, img_dir, suffix=".png")), axis=1
+    )
 
     # merge levels and filter
     df = pd.merge(keypoints, levels, how="left", on=constants.BASIC_COLS)
     df["level"] = df["type"].where(df["level"].isna(), df.pop("level"))
     df["level_distance"] = df["level_distance"].fillna(0.0)
 
-    # add img path
-    df["img_path"] = df[constants.BASIC_COLS].apply(
-        lambda x: str(utils.get_image_path(*x, img_dir, suffix=".png")), axis=1
-    )
-
     # merge meta
     df = df.merge(meta, how="inner", on=constants.BASIC_COLS)
     df = utils.add_xyz_world(df)
-    df = utils.add_xyz_world(df, x_col="center_x", y_col="center_y", suffix="_center")
-    df = utils.add_normal(df)
-    df = utils.add_relative_position(df)
     df = utils.add_sides(df)
 
+    common_index = ["study_id", "level", "side"]
+
     # sort, clean and index
-    df = df.sort_values(constants.BASIC_COLS)
+    df = df.set_index(common_index).sort_index()
+    df = process_world(df)
+    df = process_pos(df)
 
-    df = df.drop(columns=constants.BASIC_COLS[1:])
-    df = df.set_index(["study_id", "level", "side", "img_path"]).sort_index()
-
-    x = df[["x", "y", "PixelSpacing_0", "PixelSpacing_1", "TargetSpacing_0", "TargetSpacing_1"]]
-    new_meta = df[META_COLS].droplevel(-1)
+    x = df[["series_description", "img_path", "PixelSpacing_0", "PixelSpacing_1", "x", "y", "angle"]]
+    new_meta = df[META_COLS]
 
     print("Data loaded")
 
@@ -217,7 +231,6 @@ class DataModule(L.LightningDataModule):
         levels_path: Path = constants.LEVELS_PATH,
         meta_path: Path = constants.META_PATH,
         img_size: int = 224,
-        size_ratio: int = 10,
         img_dir: Path = constants.TRAIN_IMG_DIR,
         n_splits: int = 5,
         this_split: int = 0,
@@ -226,7 +239,6 @@ class DataModule(L.LightningDataModule):
     ):
         super().__init__()
         self.img_size = img_size
-        self.size_ratio = size_ratio
         self.n_splits = n_splits
         self.this_split = this_split
         self.batch_size = batch_size
@@ -247,16 +259,16 @@ class DataModule(L.LightningDataModule):
             train_df, val_df = self.split()
             if self.train_level_side:
                 train_df = utils.train_study2levelside(train_df)
-            self.train_ds = Dataset(train_df, self.df, self.meta, self.size_ratio, get_aug_transforms(self.img_size))
-            self.val_ds = Dataset(val_df, self.df, self.meta, self.size_ratio, get_transforms(self.img_size))
+            self.train_ds = Dataset(train_df, self.df, self.meta, self.img_size, get_aug_transforms(self.img_size))
+            self.val_ds = Dataset(val_df, self.df, self.meta, self.img_size, get_transforms(self.img_size))
 
         if stage == "test":
             _, val_df = self.split()
-            self.test_ds = Dataset(val_df, self.df, self.meta, self.size_ratio, get_transforms(self.img_size))
+            self.test_ds = Dataset(val_df, self.df, self.meta, self.img_size, get_transforms(self.img_size))
 
         if stage == "predict":
-            fake_train = self.df[[]].droplevel([1, 2, 3])
-            self.predict_ds = Dataset(fake_train, self.df, self.meta, self.size_ratio, get_transforms(self.img_size))
+            fake_train = self.df[[]].droplevel([1, 2])
+            self.predict_ds = Dataset(fake_train, self.df, self.meta, self.img_size, get_transforms(self.img_size))
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -300,7 +312,7 @@ class DataModule(L.LightningDataModule):
 if __name__ == "__main__":
     import yaml
 
-    config = yaml.load(open("configs/sequence_1.yaml"), Loader=yaml.FullLoader)
+    config = yaml.load(open("configs/sequence.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
 
     dm.setup("fit")
