@@ -11,7 +11,6 @@ trainer:
     init_args:
       train_c: train_loss_epoch
       val_c: val_loss
-      lr_c: lr-AdamW
       save_dir: lightning_logs/
       name: ''
       version: null
@@ -58,11 +57,10 @@ trainer:
       preds_name: preds.parquet
   - class_path: src.callbacks.CustomBackboneFinetuning
     init_args:
-      unfreeze_at_epoch: -1
+      unfreeze_at_epoch: 0
       unfreeze_bn: true
       backbone_names:
       - backbone
-      - meta_norm
       - meta_proj
       - proj
       - transformer
@@ -108,7 +106,7 @@ model:
   init_args:
     image:
       arch: regnetz_b16.ra3_in1k
-      eval: false
+      eval: true
       pretrained: true
     train_any_severe_spinal: false
     conditions:
@@ -145,7 +143,7 @@ model:
         last_epoch: -1
     interval: step
     frequency: 1
-    ckpt_path: trash/sequence/checkpoints/epoch=4_val_loss=0.4199.ckpt
+    ckpt_path: checkpoints/sequence/checkpoints/epoch=3_val_loss=0.4188.ckpt
 data:
   class_path: src.sequence.data_loading.DataModule
   init_args:
@@ -156,7 +154,6 @@ data:
     levels_path: data/preds_levels.parquet
     meta_path: data/metadata.csv
     img_size: 96
-    size_ratio: 96
     img_dir: mount/train_images_clip
     n_splits: 5
     this_split: 0

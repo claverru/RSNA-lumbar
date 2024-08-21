@@ -165,12 +165,21 @@ def print_tensor(tensor: Union[dict, torch.Tensor]):
             print_tensor(v)
 
 
-def load_meta(meta_path: Path = constants.META_PATH, fillna: float = 0):
+def load_meta(
+    meta_path: Path = constants.META_PATH,
+    fillna: float = 0,
+    with_center: bool = False,
+    with_relative_position: bool = False,
+    with_normal: bool = False,
+):
     meta = pd.read_csv(meta_path)
     meta = meta.fillna(fillna)
-    meta = add_center(meta)
-    meta = add_relative_position(meta)
-    meta = add_normal(meta)
+    if with_center:
+        meta = add_center(meta)
+    if with_relative_position:
+        meta = add_relative_position(meta)
+    if with_normal:
+        meta = add_normal(meta)
     return meta
 
 

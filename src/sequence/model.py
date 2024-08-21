@@ -5,7 +5,6 @@ import torch
 
 from src import constants, losses, model
 from src.patch import model as patch_model
-from src.sequence.data_loading import META_COLS
 
 
 def get_proj(in_dim, out_dim, dropout=0):
@@ -100,8 +99,6 @@ class LightningModule(model.LightningModule):
 
         self.conditions = conditions
 
-        self.meta_norm = torch.nn.LayerNorm(len(META_COLS))
-        self.feats_norm = torch.nn.LayerNorm(self.backbone.backbone.num_features)
         self.meta_proj = get_proj(None, emb_dim, emb_dropout)
         self.proj = get_proj(None, emb_dim, emb_dropout)
         self.pos = PositionalEncoding(emb_dim, att_dropout, max_len=5000)
@@ -118,9 +115,6 @@ class LightningModule(model.LightningModule):
         )
 
         if add_mid_attention:
-            # self.mid_attention = torch.nn.Sequential(
-            #     LevelSideEmbedding(len(conditions), emb_dim), model.get_encoder(emb_dim, n_heads, 1, att_dropout)
-            # )
             self.mid_attention = model.get_encoder(emb_dim, n_heads, 1, att_dropout)
         else:
             self.mid_attention = None
