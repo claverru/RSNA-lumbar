@@ -1,5 +1,6 @@
+import random
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import albumentations as A
 import cv2
@@ -7,9 +8,26 @@ import lightning as L
 import numpy as np
 import pandas as pd
 import torch
+import torchvision
+import torchvision.transforms.functional
 from albumentations.pytorch import ToTensorV2
 
 from src import constants, utils
+
+KEYPOINT_KEYS = [
+    "axial_right",
+    "axial_left",
+    "sagittal_l1_l2_left",
+    "sagittal_l1_l2_right",
+    "sagittal_l2_l3_left",
+    "sagittal_l2_l3_right",
+    "sagittal_l3_l4_left",
+    "sagittal_l3_l4_right",
+    "sagittal_l4_l5_left",
+    "sagittal_l4_l5_right",
+    "sagittal_l5_s1_left",
+    "sagittal_l5_s1_right",
+]
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -19,47 +37,55 @@ class Dataset(torch.utils.data.Dataset):
         img_dir: Path = constants.TRAIN_IMG_DIR,
         train: bool = False,
         transforms: Optional[A.Compose] = None,
+        hflip_p: float = 0.0,
     ):
         self.df = df
         self.img_dir = img_dir
         self.train = train
         self.transforms = transforms
-        self.index2id = {i: idx for i, idx in enumerate(self.df.index.unique())}
+        self.index = df.droplevel(-1).index.unique()
+        self.hflip_p = hflip_p
 
     def __len__(self):
-        return len(self.index2id)
+        return len(self.index)
 
     def get_keypoints(self, chunk: pd.DataFrame):
-        return chunk[["x", "y"]].values
+        return chunk.values, chunk.index.values
 
     def keypoints2xy(self, keypoints, shape):
         C, H, W = shape
         denominator = torch.tensor([[W, H]])
         return torch.tensor(keypoints) / denominator
 
+    def hflip(self, x: torch.Tensor, target: Dict[str, torch.Tensor], plane: str):
+        if random.random() < self.hflip_p and plane == "axial":
+            x = torchvision.transforms.functional.hflip(x)
+            prev_left = target["axial_left"]
+            prev_right = target["axial_right"]
+            prev_left[0] = 1 - prev_left[0]
+            prev_right[0] = 1 - prev_right[0]
+            target["axial_left"], target["axial_right"] = prev_right, prev_left
+        return x, target
+
     def __getitem__(self, index):
-        idx = self.index2id[index]
+        idx = self.index[index]
         study_id, series_id, instance_number, plane = idx
         chunk: pd.DataFrame = self.df.loc[idx]
         img_path = utils.get_image_path(study_id, series_id, instance_number, self.img_dir, suffix=".png")
         img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
 
-        keypoints = self.get_keypoints(chunk)
+        keypoints, keys = self.get_keypoints(chunk)
 
         transformed = self.transforms(image=img, keypoints=keypoints)
         x = transformed["image"]
-        keypoints = transformed["keypoints"]  # xy
+        keypoints = np.array(transformed["keypoints"])
 
-        if plane == "Axial T2":
-            keypoints_axial = sorted(keypoints, key=lambda x: x[0])  # left to right
-            xy_axial = self.keypoints2xy(keypoints_axial, x.shape)
-            xy_saggital = -torch.ones(5, 2)
-        else:
-            keypoints_saggital = sorted(keypoints, key=lambda x: x[1])  # top to botton
-            xy_saggital = self.keypoints2xy(keypoints_saggital, x.shape)
-            xy_axial = -torch.ones(2, 2)
+        keypoints = self.keypoints2xy(keypoints, x.shape)
+        target = dict(zip(keys, keypoints))
 
-        return x, xy_saggital, xy_axial
+        x, target = self.hflip(x, target, plane)
+
+        return x, target
 
 
 class PredictDataset(torch.utils.data.Dataset):
@@ -98,18 +124,18 @@ def get_transforms(img_size):
 def get_train_transforms(img_size):
     return A.Compose(
         [
-            A.ShiftScaleRotate(
-                shift_limit=(-0.3, 0.3),
-                rotate_limit=(-10, 10),
+            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
+            A.Affine(
+                rotate=(-15, 15),
+                shear=(-15, 15),
+                translate_percent=0.2,
+                scale=(0.8, 1.2),
                 interpolation=cv2.INTER_CUBIC,
-                border_mode=cv2.BORDER_CONSTANT,
-                value=0,
                 p=0.5,
             ),
-            A.Resize(img_size, img_size, interpolation=cv2.INTER_CUBIC),
-            A.HorizontalFlip(p=0.5),
-            A.MotionBlur(p=0.3),
-            A.GaussNoise(p=0.3),
+            A.Perspective(0.2, interpolation=cv2.INTER_CUBIC, p=0.5),
+            A.GaussNoise(var_limit=30, noise_scale_factor=0.90, mean=0, p=0.5),
+            A.MotionBlur(blur_limit=(3, 7), p=0.5),
             A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ],
@@ -127,18 +153,26 @@ def get_predict_transforms(img_size):
     )
 
 
-def load_df(coor_path: Path = constants.COOR_PATH, desc_path: Path = constants.DESC_PATH) -> pd.DataFrame:
+def load_df(coor_path: Path = constants.COOR_PATH, t2_coor_path: Path = constants.T2_COOR_PATH) -> pd.DataFrame:
     df = utils.load_coor(coor_path)
-    desc = utils.load_desc(desc_path)
-    df = df[constants.BASIC_COLS + ["x", "y", "level"]]
-    df = df.merge(desc, how="inner", on=constants.BASIC_COLS[:2])
-    is_axial = df["series_description"] == "Axial T2"
-    is_sagittal = ~is_axial
-    size = df.groupby(constants.BASIC_COLS).transform("size")
-    nunique = df.groupby(constants.BASIC_COLS)["level"].transform("nunique")
-    df = df[(is_axial & size.eq(2) & nunique.eq(1)) | (is_sagittal & size.eq(5) & nunique.eq(5))]
-    df = df.drop(columns="level")
-    df = df.set_index(constants.BASIC_COLS + ["series_description"]).sort_index()
+    df = df[constants.BASIC_COLS + ["x", "y", "type"]]
+    df["type"] = df["type"].map(lambda x: {"right": "left", "left": "right"}.get(x, x))
+    df["type_side"] = df.pop("type").apply(lambda x: f"axial_{x}" if x in ("right", "left") else f"sagittal_{x}_right")
+
+    t2 = pd.read_csv(t2_coor_path)
+    t2["type_side"] = "sagittal" + "_" + t2.pop("level").str.lower().str.replace("/", "_") + "_" + t2.pop("side")
+
+    df = df.merge(t2, how="outer", on=constants.BASIC_COLS + ["type_side"], suffixes=["1", "2"])
+    df["plane"] = df["type_side"].str.split("_", n=1, expand=True)[0]
+
+    df["x"] = df["x2"].where(~df.pop("x2").isna(), df.pop("x1"))
+    df["y"] = df["y2"].where(~df.pop("y2").isna(), df.pop("y1"))
+
+    df = df.pivot_table(index=constants.BASIC_COLS + ["plane"], columns=["type_side"], values=["x", "y"]).fillna(-1000)
+    df = df.stack(future_stack=True)
+
+    df = df.sort_index()
+
     return df
 
 
@@ -146,7 +180,7 @@ class DataModule(L.LightningDataModule):
     def __init__(
         self,
         coor_path: Path = constants.COOR_PATH,
-        desc_path: Path = constants.DESC_PATH,
+        t2_coor_path: Path = constants.T2_COOR_PATH,
         img_dir: Path = constants.TRAIN_IMG_DIR,
         n_splits: int = 5,
         this_split: int = 0,
@@ -161,7 +195,8 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_size = img_size
-        self.df = load_df(coor_path, desc_path)
+        self.coor_path = coor_path
+        self.t2_coor_path = t2_coor_path
 
     def prepare_data(self):
         pass
@@ -171,9 +206,14 @@ class DataModule(L.LightningDataModule):
 
     def setup(self, stage: str):
         if stage == "fit":
+            self.df = load_df(self.coor_path, self.t2_coor_path)
             train_df, val_df = self.split()
-            self.train_ds = Dataset(train_df, self.img_dir, train=True, transforms=get_train_transforms(self.img_size))
-            self.val_ds = Dataset(val_df, self.img_dir, train=False, transforms=get_transforms(self.img_size))
+            self.train_ds = Dataset(
+                train_df, self.img_dir, train=True, transforms=get_train_transforms(self.img_size), hflip_p=0.5
+            )
+            self.val_ds = Dataset(
+                val_df, self.img_dir, train=False, transforms=get_transforms(self.img_size), hflip_p=0.0
+            )
 
         if stage == "test":
             pass
@@ -211,12 +251,13 @@ class DataModule(L.LightningDataModule):
 if __name__ == "__main__":
     import yaml
 
-    config = yaml.load(open("configs/image.yaml"), Loader=yaml.FullLoader)
+    config = yaml.load(open("configs/keypoints.yaml"), Loader=yaml.FullLoader)
     dm = DataModule(**config["data"]["init_args"])
     dm.setup("fit")
-    for x, xy_saggital, xy_axial, level in dm.train_dataloader():
-        print(x.shape, x.dtype)
-        print(xy_saggital.shape, xy_saggital.dtype)
-        print(xy_axial.shape, xy_axial.dtype)
-        print(level.shape, level.dtype)
+    for x, target in dm.train_dataloader():
+        print()
+        utils.print_tensor(x)
+        utils.print_tensor(target)
+
+        torch.save(target, "target.pt")
         input()

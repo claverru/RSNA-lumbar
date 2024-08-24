@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Literal
 
 import torch
 from torchmetrics import Metric
@@ -34,7 +34,7 @@ class LumbarLoss(torch.nn.Module):
         is_valid = severe_spinal_true != -1
 
         if ~is_valid.any():
-            return -1
+            return -1.0
 
         severe_spinal_preds = self.get_condition_tensors(y_pred_dict, "spinal_canal_stenosis", torch.stack)
         lse_first_two = severe_spinal_preds[..., :2].logsumexp(-1)
@@ -77,7 +77,12 @@ class LumbarLoss(torch.nn.Module):
             losses[condition] = self.__compute_condition_loss(y_true_dict, y_pred_dict, condition)
         if self.do_any_severe_spinal:
             losses["any_severe_spinal"] = self.__compute_severe_spinal_loss(y_true_dict, y_pred_dict)
-        return losses
+
+        valid_losses = [loss for loss in losses.values() if loss != -1.0]
+
+        total_loss = sum(valid_losses) / len(valid_losses)
+
+        return total_loss, losses
 
 
 class LumbarMetric(Metric):
@@ -103,7 +108,14 @@ class LumbarMetric(Metric):
 
 
 class FocalLoss(torch.nn.Module):
-    def __init__(self, gamma, weight=None, ignore_index=-100, reduction="mean", binary: bool = False):
+    def __init__(
+        self,
+        gamma,
+        weight=None,
+        ignore_index: int = -100,
+        reduction: Literal["mean", "sum", "none"] = "mean",
+        binary: bool = False,
+    ):
         super().__init__()
         self.gamma = gamma
         self.ignore_index = ignore_index
@@ -130,9 +142,14 @@ class FocalLoss(torch.nn.Module):
             positive_class_probas = torch.gather(probas, 1, target[..., None])
 
         loss = torch.pow(1 - positive_class_probas, self.gamma) * cross_entropy
-        if self.reduction == "mean":
-            return loss.mean()
-        return loss
+
+        match self.reduction:
+            case "mean":
+                return loss.mean()
+            case "sum":
+                return loss.sum()
+            case "none":
+                return loss
 
 
 class BCEWithLogitsLossSmoothed(torch.nn.BCEWithLogitsLoss):

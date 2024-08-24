@@ -233,8 +233,8 @@ def add_xyz_world(df: pd.DataFrame, x_col: str = "x", y_col: str = "y", suffix: 
     o4 = df["ImageOrientationPatient_4"].values
     o5 = df["ImageOrientationPatient_5"].values
 
-    delx = df["PixelSpacing_0"].values
-    dely = df["PixelSpacing_1"].values
+    spacing_x = df["PixelSpacing_0"].values
+    spacing_y = df["PixelSpacing_1"].values
 
     sx = df["ImagePositionPatient_0"].values
     sy = df["ImagePositionPatient_1"].values
@@ -243,8 +243,8 @@ def add_xyz_world(df: pd.DataFrame, x_col: str = "x", y_col: str = "y", suffix: 
     x = df[x_col] * df["Columns"]
     y = df[y_col] * df["Rows"]
 
-    df["xx" + suffix] = o0 * delx * x + o3 * dely * y + sx
-    df["yy" + suffix] = o1 * delx * x + o4 * dely * y + sy
-    df["zz" + suffix] = o2 * delx * x + o5 * dely * y + sz
+    df["xx" + suffix] = o0 * spacing_x * x + o3 * spacing_y * y + sx
+    df["yy" + suffix] = o1 * spacing_x * x + o4 * spacing_y * y + sy
+    df["zz" + suffix] = o2 * spacing_x * x + o5 * spacing_y * y + sz
 
     return df

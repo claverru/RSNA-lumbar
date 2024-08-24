@@ -57,7 +57,7 @@ trainer:
       preds_name: preds.parquet
   - class_path: src.callbacks.CustomBackboneFinetuning
     init_args:
-      unfreeze_at_epoch: 0
+      unfreeze_at_epoch: -1
       unfreeze_bn: true
       backbone_names:
       - backbone
@@ -121,6 +121,7 @@ model:
     out_dropout: 0.3
     add_mid_attention: true
     any_severe_spinal_smoothing: 0.0
+    spinal_agg: max
     optimizer:
       class_path: src.ranger.Ranger
       init_args:
@@ -143,7 +144,7 @@ model:
         last_epoch: -1
     interval: step
     frequency: 1
-    ckpt_path: checkpoints/sequence/checkpoints/epoch=3_val_loss=0.4188.ckpt
+    ckpt_path: lightning_logs/version_1/checkpoints/epoch=5_val_loss=0.4132.ckpt
 data:
   class_path: src.sequence.data_loading.DataModule
   init_args:

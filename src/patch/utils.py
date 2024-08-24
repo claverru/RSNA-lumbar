@@ -29,7 +29,8 @@ class Image:
     def w(self):
         return self.array.shape[1]
 
-    def rotate(self, angle: int) -> Image:
+    def rotate(self, angle: float) -> Image:
+        angle = int(angle)
         if angle == 0:
             return self
         array = A.augmentations.geometric.functional.rotate(self.array, angle, cv2.INTER_CUBIC, cv2.BORDER_CONSTANT, 0)
@@ -82,7 +83,8 @@ class Keypoint:
         y = int(self.y * img.h)
         return Keypoint(x, y)
 
-    def rotate(self, img: Image, angle: int) -> Keypoint:
+    def rotate(self, img: Image, angle: float) -> Keypoint:
+        angle = int(angle)
         if angle == 0:
             return self
         kp_A = (self.x, self.y, 0, 1)
@@ -109,15 +111,44 @@ def crop_ratio(img: Image, kp: Keypoint, size_ratio: int) -> np.ndarray:
     return patch
 
 
-PLANE2SPACING = {"Axial T2": 0.35, "Sagittal T1": 0.70, "Sagittal T2/STIR": 0.72}
+PLANE2SPACING = {"Axial T2": 0.35, "Sagittal T1": 0.72, "Sagittal T2/STIR": 0.72}
 
 
-def angle_crop_size(img: Image, kp: Keypoint, angle: int, size: int, plane: str = None):
-    img = img.rotate(angle)
-    kp = kp.scale_to_img(img)
-    kp = kp.rotate(img, angle)
-    patch = crop_size(img, kp, size, plane)
-    return patch
+def angle_crop_size(img: Image, kp: Keypoint, angle: float, size: int, plane: str):
+    angle = angle
+    center = kp.scale_to_img(img).get()
+    rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+    if "Axial" in plane:
+        size = (size, size)
+    else:
+        size = (size, size // 2)
+
+    # Determine the new dimensions
+    abs_cos = abs(rotation_matrix[0, 0])
+    abs_sin = abs(rotation_matrix[0, 1])
+    bound_w = int(size[1] * abs_sin + size[0] * abs_cos)
+    bound_h = int(size[1] * abs_cos + size[0] * abs_sin)
+
+    # Update the rotation matrix
+    rotation_matrix[0, 2] += bound_w / 2 - center[0]
+    rotation_matrix[1, 2] += bound_h / 2 - center[1]
+
+    # Rotate the img
+    rotated = cv2.warpAffine(img.get(), rotation_matrix, (bound_w, bound_h))
+
+    # Crop the rotated img
+    cropped = cv2.getRectSubPix(rotated, size, (bound_w / 2, bound_h / 2))
+
+    return cropped
+
+
+# def angle_crop_size(img: Image, kp: Keypoint, angle: int, size: int, plane: str = None):
+#     img = img.rotate(angle)
+#     kp = kp.scale_to_img(img)
+#     kp = kp.rotate(img, angle)
+#     patch = crop_size(img, kp, size, plane)
+#     return patch
 
 
 def default_limits(kp: Keypoint, size: int) -> Tuple[int, int, int, int]:

@@ -1,7 +1,8 @@
-import torch
 import timm
+import torch
 
 from src import model
+from src.keypoints.data_loading import KEYPOINT_KEYS
 
 
 class DistanceLoss(torch.nn.Module):
@@ -10,8 +11,12 @@ class DistanceLoss(torch.nn.Module):
         self.reduction = reduction
         self.distance = torch.nn.PairwiseDistance()
 
-    def forward(self, pred, true):
-        result = self.distance(pred, true)
+    def forward(self, pred, target):
+        mask = ((target >= 0) & (target <= 1)).all(-1)
+        if ~mask.any():
+            return -1.0
+
+        result = self.distance(pred[mask], target[mask])
         if self.reduction == "mean":
             result = result.mean()
         return result
@@ -52,54 +57,37 @@ class LightningModule(model.LightningModule):
         self.norm = torch.nn.InstanceNorm2d(self.in_channels)
         self.pool = get_pool(n_feats, depth)
 
-        self.xy_sagittal = torch.nn.Sequential(torch.nn.Linear(n_feats, 5 * 2), torch.nn.Sigmoid())
-
-        self.xy_axial = torch.nn.Sequential(torch.nn.Linear(n_feats, 2 * 2), torch.nn.Sigmoid())
+        self.heads = torch.nn.ModuleDict({k: model.get_proj(None, 2, 0.0, torch.nn.Sigmoid()) for k in KEYPOINT_KEYS})
 
     def forward(self, x):
-        B = x.shape[0]
         norm_x = self.norm(x)
         feats = self.backbone.forward_features(norm_x)
         flatten_feats = self.pool(feats)
-
-        xy_sagittal = self.xy_sagittal(flatten_feats).reshape(B, -1, 2)
-        xy_axial = self.xy_axial(flatten_feats).reshape(B, -1, 2)
-
-        return xy_sagittal, xy_axial
-
-    def do_xy_loss(self, pred, target):
-        loss = 0.0
-        mask = ((target >= 0) & (target <= 1)).all(-1)
-        if mask.any():
-            target = target[mask]
-            pred = pred[mask]
-            loss = self.loss_xy(pred, target)
-        return loss
+        outs = {k: head(flatten_feats) for k, head in self.heads.items()}
+        return outs
 
     def do_step(self, batch, prefix="train"):
-        x, xy_sagittal, xy_axial = batch
-        pred_xy_sagittal, pred_xy_axial = self.forward(x)
+        x, target = batch
+        preds = self.forward(x)
 
-        xy_sagittal_loss = self.do_xy_loss(pred_xy_sagittal, xy_sagittal)
-        xy_axial_loss = self.do_xy_loss(pred_xy_axial, xy_axial)
+        losses = []
+        for k in target:
+            loss = self.loss_xy(preds[k], target[k])
+            self.log(f"{prefix}_{k}_loss", loss, on_epoch=True, prog_bar=False, on_step=False)
+            losses.append(loss)
 
-        loss = xy_sagittal_loss + xy_axial_loss
+        losses = [loss for loss in losses if loss >= 0]
+        total_loss = sum(losses) / (len(losses) + 1e-16)
+        self.log(f"{prefix}_loss", total_loss, on_epoch=True, prog_bar=True, on_step=prefix == "train")
 
-        self.log(prefix + "_sag_loss", xy_sagittal_loss, on_epoch=True, prog_bar=True, on_step=False)
-        self.log(prefix + "_ax_loss", xy_axial_loss, on_epoch=True, prog_bar=True, on_step=False)
-        self.log(prefix + "_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
-
-        return loss
+        return total_loss
 
     def training_step(self, batch, batch_idx):
-        return self.do_step(batch)
+        return self.do_step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
         return self.do_step(batch, "val")
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x = batch
-        B = x.shape[0]
-        pred_xy_sagittal, pred_xy_axial = self.forward(x)
-        result = torch.concat([pred_xy_sagittal.reshape(B, -1), pred_xy_axial.reshape(B, -1)], axis=1)
-        return {"": result}
+        return self.forward(x)

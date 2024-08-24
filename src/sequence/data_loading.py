@@ -49,6 +49,8 @@ class Dataset(torch.utils.data.Dataset):
             img = imgs[img_path]
             kp = Keypoint(x, y)
             patch = angle_crop_size(img, kp, angle, self.img_size, plane)
+            if 0 in patch.shape:  # I don't know
+                patch = np.zeros((self.img_size, self.img_size), dtype=np.uint8)
             patch = self.transforms(image=patch)["image"]
             patches.append(patch)
 
@@ -189,7 +191,7 @@ def load_df(
     meta_path: Path = constants.META_PATH,
     img_dir: Path = constants.TRAIN_IMG_DIR,
 ):
-    keypoints = load_keypoints(keypoints_path, desc_path)
+    keypoints = load_keypoints(keypoints_path, desc_path, meta_path)
     levels = load_levels(levels_path)
     meta = utils.load_meta(meta_path, with_center=False, with_normal=True, with_relative_position=True)
     meta["img_path"] = meta[constants.BASIC_COLS].apply(

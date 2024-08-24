@@ -1,17 +1,10 @@
 import math
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 import torch
 
 from src import constants, losses, model
 from src.patch import model as patch_model
-
-
-def get_proj(in_dim, out_dim, dropout=0):
-    return torch.nn.Sequential(
-        torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
-        torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim),
-    )
 
 
 class MaskDropout(torch.nn.Module):
@@ -88,6 +81,7 @@ class LightningModule(model.LightningModule):
         out_dropout: float = 0.3,
         add_mid_attention: bool = False,
         any_severe_spinal_smoothing: float = 0.0,
+        spinal_agg: Literal["linear", "mean", "max", "first"] = "max",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -99,8 +93,8 @@ class LightningModule(model.LightningModule):
 
         self.conditions = conditions
 
-        self.meta_proj = get_proj(None, emb_dim, emb_dropout)
-        self.proj = get_proj(None, emb_dim, emb_dropout)
+        self.meta_proj = model.get_proj(None, emb_dim, emb_dropout)
+        self.proj = model.get_proj(None, emb_dim, emb_dropout)
         self.pos = PositionalEncoding(emb_dim, att_dropout, max_len=5000)
 
         self.transformer = torch.nn.Transformer(
@@ -116,11 +110,15 @@ class LightningModule(model.LightningModule):
 
         if add_mid_attention:
             self.mid_attention = model.get_encoder(emb_dim, n_heads, 1, att_dropout)
+
         else:
             self.mid_attention = None
 
-        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
-        # self.heads = get_proj(emb_dim, 3, out_dropout)
+        if spinal_agg == "linear":
+            self.spinal_linear = model.get_proj(emb_dim * 2, emb_dim, out_dropout)
+        self.spinal_agg = spinal_agg
+
+        self.heads = torch.nn.ModuleDict({k: model.get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
         self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
         self.maybe_restore_checkpoint()
 
@@ -135,10 +133,8 @@ class LightningModule(model.LightningModule):
 
     def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
         feats = self.extract_features(x, mask)
-        # feats = self.feats_norm(feats)
         feats = self.proj(feats)
 
-        # meta = self.meta_norm(meta)
         meta = self.meta_proj(meta)
 
         feats = self.pos(feats)
@@ -176,7 +172,7 @@ class LightningModule(model.LightningModule):
                 head = self.heads[cond]
                 if cond == "spinal_canal_stenosis":
                     spinal_ids = [self.i(lvl, s, c) for s, _ in enumerate(sides)]
-                    feat = feats[:, spinal_ids].mean(1)
+                    feat = self.agg_spinal(feats[:, spinal_ids])
                     k = "_".join(i for i in (cond, level) if i != "any")
                     outs[k] = head(feat)
                 else:
@@ -186,14 +182,24 @@ class LightningModule(model.LightningModule):
                         outs[k] = head(feat)
         return outs
 
+    def agg_spinal(self, feat: torch.Tensor) -> torch.Tensor:
+        match self.spinal_agg:
+            case "mean":
+                return feat.mean(1)
+            case "max":
+                return feat.amax(1)
+            case "linear":
+                return self.spinal_linear(feat.flatten(1))
+            case "first":
+                return feat[:, 0]
+
     def i(self, lvl, s, c):
         return lvl * len(self.conditions) * 2 + s * len(self.conditions) + c
 
     def training_step(self, batch, batch_idx):
         *x, y = batch
         pred = self.forward(*x)
-        losses = self.train_loss(y, pred)
-        loss = sum(losses.values()) / len(losses)
+        loss, _ = self.train_loss(y, pred)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True)
         return loss
 
@@ -206,12 +212,10 @@ class LightningModule(model.LightningModule):
         self.validation_step(batch, batch_idx)
 
     def do_metric_on_epoch_end(self, prefix):
-        losses = self.val_metric.compute()
+        loss, losses = self.val_metric.compute()
         self.val_metric.reset()
         for k, v in losses.items():
             self.log(f"{prefix}_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False)
-
-        loss = sum(losses.values()) / len(losses)
         self.log(f"{prefix}_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
 
     def on_validation_epoch_end(self, *args, **kwargs):

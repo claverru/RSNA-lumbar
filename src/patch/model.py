@@ -19,9 +19,9 @@ class LightningModule(model.LightningModule):
     ):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss(do_any_severe_spinal)
-        self.val_loss = losses.LumbarMetric(do_any_severe_spinal)
+        self.val_metric = losses.LumbarMetric(do_any_severe_spinal)
         self.norm = torch.nn.InstanceNorm2d(1)
-        self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained)
+        self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained, img_size=96)
         if eval:
             self.backbone = self.backbone.eval()
 
@@ -42,31 +42,27 @@ class LightningModule(model.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         pred = self.forward_train(x)
-        batch_size = y[list(y)[0]].shape[0]
-
-        losses: Dict[str, torch.Tensor] = self.train_loss(y, pred)
-
-        for k, v in losses.items():
-            self.log(f"train_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False, batch_size=batch_size)
-
-        loss = sum(losses.values()) / len(losses)
-        self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True, batch_size=batch_size)
-
+        loss, _ = self.train_loss(y, pred)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         pred = self.forward_train(x)
-        self.val_loss.update(y, pred)
+        self.val_metric.update(y, pred)
+
+    def do_metric_on_epoch_end(self, prefix):
+        loss, losses = self.val_metric.compute()
+        self.val_metric.reset()
+        for k, v in losses.items():
+            self.log(f"{prefix}_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False)
+        self.log(f"{prefix}_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
 
     def on_validation_epoch_end(self, *args, **kwargs):
-        losses = self.val_loss.compute()
-        self.val_loss.reset()
-        for k, v in losses.items():
-            self.log(f"val_{k}_loss", v, on_epoch=True, prog_bar=False, on_step=False)
+        self.do_metric_on_epoch_end("val")
 
-        loss = sum(losses.values()) / len(losses)
-        self.log("val_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
+    def on_test_epoch_end(self, *args, **kwargs):
+        self.do_metric_on_epoch_end("test")
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x = batch

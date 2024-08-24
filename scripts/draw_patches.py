@@ -17,7 +17,7 @@ def main(mode: Literal["train", "val"] = "val"):
     dl = dm.train_dataloader() if mode == "train" else dm.val_dataloader()
     for X, y in dl:
         patches = []
-        for i, x in enumerate(X):
+        for x in X:
             utils.print_tensor(y)
             img = x[0].numpy()
             img = img - img.min()

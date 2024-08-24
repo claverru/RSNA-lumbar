@@ -99,32 +99,93 @@ LEVEL2ANGLE = {
 }
 
 
-def load_keypoints(
-    keypoints_path: Path = constants.KEYPOINTS_PATH, desc_path: Path = constants.DESC_PATH
-) -> pd.DataFrame:
-    # reshape keypoints
-    df = pd.read_parquet(keypoints_path)
-    levels_sides = constants.LEVELS + ["left", "right"]
-    levels_sides_cols = [f"{side}_{x}" for side in levels_sides for x in ("x", "y")]
-    feature_cols = [c for c in df.columns if c.startswith("_f")]
-    new_cols = dict(zip(feature_cols, levels_sides_cols))
-    df = df.rename(columns=new_cols)
-    df = df.melt(id_vars=constants.BASIC_COLS)
-    df[["type", "xy"]] = df.pop("variable").str.rsplit("_", n=1, expand=True)
-    df = df.pivot(values="value", index=constants.BASIC_COLS + ["type"], columns="xy").reset_index()
+def get_angle(x1, y1, x2, y2):
+    dy = y2 - y1
+    dx = x2 - x1
+    angle = np.degrees(np.arctan2(dy, dx))
+    return angle
 
-    # merge desc filter invalid keypoints
+
+def mid_mask(a):
+    mask = np.zeros(len(a), dtype=bool)
+    mid = len(a) // 2
+    if len(a) % 2 == 0:
+        mask[mid - 2 : mid + 2] = True
+    else:
+        mask[mid - 1 : mid + 2] = True
+
+    return mask
+
+
+def smooth(s):
+    a = s.values
+    mask = mid_mask(a)
+    value = a[mask].mean()
+    a[:] = value
+    return a
+
+
+def load_keypoints(
+    keypoints_path: Path = constants.KEYPOINTS_PATH,
+    desc_path: Path = constants.DESC_PATH,
+    meta_path: Path = constants.META_PATH,
+) -> pd.DataFrame:
+    df = pd.read_parquet(keypoints_path)
     desc = utils.load_desc(desc_path)
+    meta = utils.load_meta(meta_path, with_center=False, with_relative_position=False, with_normal=False)[
+        constants.BASIC_COLS + ["Rows", "Columns"]
+    ]
+
     df = df.merge(desc, how="inner", on=constants.BASIC_COLS[:2])
+
+    df = df.melt(id_vars=constants.BASIC_COLS + ["series_description"])
+
     is_axial = df["series_description"].eq("Axial T2")
     is_sagittal = ~is_axial
-    is_levels = df["type"].isin(constants.LEVELS)
-    is_sides = ~is_levels
-    df = df[(is_axial & is_sides) | (is_sagittal & is_levels)]
-    df["angle"] = df["type"].map(LEVEL2ANGLE).astype(int)
 
-    # final cleaning
-    df = df.reset_index(drop=True)
+    has_axial = df["variable"].str.contains("axial")
+    has_sagittal = ~has_axial
+
+    df = df[(is_axial & has_axial) | (is_sagittal & has_sagittal)]
+
+    df[["type", "coor"]] = df.pop("variable").str.rsplit("_", n=1, expand=True)[[0, 1]]
+    df["type"] = df["type"].str.split("_", n=1, expand=True)[1]
+
+    df["coor"] = df["coor"].map({"f0": "x", "f1": "y"})
+
+    df = df.pivot(
+        index=constants.BASIC_COLS + ["series_description", "type"], columns="coor", values="value"
+    ).reset_index()
+
+    df = df.merge(meta, how="inner", on=constants.BASIC_COLS)
+
+    df["x_"] = df["x"] * df.pop("Columns")
+    df["y_"] = df["y"] * df.pop("Rows")
+
+    is_axial = df["series_description"].eq("Axial T2")
+    is_sagittal = ~is_axial
+
+    right = df["type"].str.contains("right")
+    left = ~right
+    df["type"] = df["type"].str.rsplit("_", n=1, expand=True)[0]
+
+    x1, y1 = df.loc[left, "x_"].values, df.loc[left, "y_"].values
+    x2, y2 = df.loc[right, "x_"].values, df.loc[right, "y_"].values
+
+    df["angle"] = get_angle(x1, y1, x2, y2).repeat(2)
+    # df["mean_angle"] = df["type"].map(LEVEL2ANGLE)
+    # df["angle"] = df["angle"].where((df["angle"] - df["mean_angle"]).abs() < 10, df["mean_angle"])
+    # df = df.drop(columns="mean_angle")
+
+    df = df[is_axial | (is_sagittal & right)]
+
+    is_sagittal = ~df["series_description"].eq("Axial T2")
+
+    for c in ("x", "y", "angle"):
+        df.loc[is_sagittal, c] = df[is_sagittal].groupby(["series_id", "type"])[c].transform(smooth)
+
+    df = df.drop(columns=["x_", "y_"])
+
     return df
 
 
@@ -141,7 +202,7 @@ def load_df(
     train_path: Path = constants.TRAIN_PATH,
     meta_path: Path = constants.META_PATH,
 ):
-    keypoints = load_keypoints(keypoints_path, desc_path)
+    keypoints = load_keypoints(keypoints_path, desc_path, meta_path)
     coor = utils.load_coor(coor_path).drop(columns=["level", "x", "y"])
     train = load_this_train(train_path)
     meta = utils.load_meta(meta_path, 0, False, False, False)[

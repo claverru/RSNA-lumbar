@@ -8,12 +8,13 @@ TEST_IMG_DIR = ROOT / "train_images"
 COOR_PATH = ROOT / "train_label_coordinates.csv"
 TRAIN_PATH = ROOT / "train.csv"
 DESC_PATH = ROOT / "train_series_descriptions.csv"
+T2_COOR_PATH = ROOT / "t2_coordinates.csv"
 
 FEATS_PATH = ROOT / "preds/feats.parquet"
 META_PATH = ROOT / "metadata.csv"
 KEYPOINTS_PATH = ROOT / "preds_keypoints.parquet"
+
 LEVELS_PATH = ROOT / "preds_levels.parquet"
-PROBAS_PATH = ROOT / "preds_probas.parquet"
 
 VAL_PREDS_NAME = "val_preds.csv"
 
