@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Literal
+from typing import Callable, Dict, List, Literal, Optional
 
 import torch
 from torchmetrics import Metric
@@ -70,7 +70,12 @@ class LumbarLoss(torch.nn.Module):
         pred_batch = self.get_condition_tensors(y_pred_dict, condition)
         return self.cond_loss(pred_batch.to(torch.float), true_batch)
 
-    def forward(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]) -> Dict[str, float]:
+    def forward(
+        self,
+        y_true_dict: Dict[str, torch.Tensor],
+        y_pred_dict: Dict[str, torch.Tensor],
+        weights: Optional[Dict[str, torch.Tensor]] = None,
+    ) -> Dict[str, float]:
         assert all(k in y_true_dict for k in y_pred_dict)
         losses = {}
         for condition in self.conditions:
@@ -78,9 +83,12 @@ class LumbarLoss(torch.nn.Module):
         if self.do_any_severe_spinal:
             losses["any_severe_spinal"] = self.__compute_severe_spinal_loss(y_true_dict, y_pred_dict)
 
-        valid_losses = [loss for loss in losses.values() if loss != -1.0]
+        valid_losses = {k: loss for k, loss in losses.items() if loss != -1.0}
 
-        total_loss = sum(valid_losses) / len(valid_losses)
+        if weights is None:
+            weights = {k: 1 for k in valid_losses}
+
+        total_loss = sum(valid_losses[k] / weights[k] for k in valid_losses) / len(valid_losses)
 
         return total_loss, losses
 

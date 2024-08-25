@@ -248,3 +248,14 @@ def add_xyz_world(df: pd.DataFrame, x_col: str = "x", y_col: str = "y", suffix: 
     df["zz" + suffix] = o2 * spacing_x * x + o5 * spacing_y * y + sz
 
     return df
+
+
+def compute_loss_weights(df: pd.DataFrame) -> Dict[str, float]:
+    assert df.index.name == "study_id"
+    df = df.where(df >= 0, pd.NA)  # in case it had fillna
+    weights = (2**df).astype("Int64").fillna(0)
+    results = {}
+    for condition in constants.CONDITIONS:
+        results[condition] = weights[[c for c in weights.columns if condition in c]].sum().sum() / len(df)
+    results["any_severe_spinal"] = weights[[c for c in weights.columns if "spinal" in c]].max(1).sum() / len(df)
+    return results
