@@ -254,7 +254,9 @@ class DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.img_dir = Path(img_dir)
-        self.df, self.train = load_df(Path(keypoints_path), Path(desc_path), Path(coor_path), Path(train_path))
+        self.df, self.train = load_df(
+            Path(keypoints_path), Path(desc_path), Path(coor_path), Path(train_path), Path(meta_path)
+        )
         self.train_path = train_path
         self.keypoints_path = Path(keypoints_path)
 

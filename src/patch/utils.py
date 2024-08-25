@@ -95,22 +95,6 @@ class Keypoint:
         return self.x, self.y
 
 
-def angle_crop_ratio(img: Image, kp: Keypoint, angle: int, size_ratio: int):
-    img = img.rotate(angle)
-    kp = kp.scale_to_img(img)
-    kp = kp.rotate(img, angle)
-    patch = crop_ratio(img, kp, size_ratio)
-    return patch
-
-
-def crop_ratio(img: Image, kp: Keypoint, size_ratio: int) -> np.ndarray:
-    half_side = max(img.h, img.w) // size_ratio
-    xmin, ymin, xmax, ymax = kp.x - half_side, kp.y - half_side, kp.x + half_side, kp.y + half_side
-    xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, img.w), min(ymax, img.h)
-    patch = img.get()[ymin:ymax, xmin:xmax]
-    return patch
-
-
 PLANE2SPACING = {"Axial T2": 0.35, "Sagittal T1": 0.72, "Sagittal T2/STIR": 0.72}
 
 
@@ -141,14 +125,6 @@ def angle_crop_size(img: Image, kp: Keypoint, angle: float, size: int, plane: st
     cropped = cv2.getRectSubPix(rotated, size, (bound_w / 2, bound_h / 2))
 
     return cropped
-
-
-# def angle_crop_size(img: Image, kp: Keypoint, angle: int, size: int, plane: str = None):
-#     img = img.rotate(angle)
-#     kp = kp.scale_to_img(img)
-#     kp = kp.rotate(img, angle)
-#     patch = crop_size(img, kp, size, plane)
-#     return patch
 
 
 def default_limits(kp: Keypoint, size: int) -> Tuple[int, int, int, int]:
