@@ -105,6 +105,7 @@ model:
       eval: true
       pretrained: false
     train_any_severe_spinal: false
+    train_weight_components: false
     conditions:
     - spinal_canal_stenosis
     - neural_foraminal_narrowing

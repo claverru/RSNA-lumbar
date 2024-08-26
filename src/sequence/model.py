@@ -8,6 +8,15 @@ from src.patch import model as patch_model
 from src.sequence.data_loading import META_COLS
 
 
+def get_proj(in_dim, out_dim, dropout=0, activation=None, norm=None):
+    return torch.nn.Sequential(
+        norm if norm is not None else torch.nn.Identity(),
+        torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
+        torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim),
+        activation if activation is not None else torch.nn.Identity(),
+    )
+
+
 class MaskDropout(torch.nn.Module):
     def __init__(self, p: float = 0.01, **kwargs):
         super().__init__(**kwargs)
@@ -85,24 +94,28 @@ class LightningModule(model.LightningModule):
         spinal_agg: Literal["linear", "mean", "max", "first"] = "max",
         norm_meta: bool = False,
         norm_feats: bool = False,
+        train_weight_components: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.train_loss = losses.LumbarLoss(
-            train_any_severe_spinal, conditions=conditions, any_severe_spinal_smoothing=any_severe_spinal_smoothing
+            train_any_severe_spinal,
+            conditions=conditions,
+            any_severe_spinal_smoothing=any_severe_spinal_smoothing,
+            train_weight_components=train_weight_components,
         )
         self.val_metric = losses.LumbarMetric("spinal_canal_stenosis" in conditions, conditions=conditions)
         self.backbone = patch_model.LightningModule(**image)
 
         self.conditions = conditions
 
-        self.meta_proj = model.get_proj(
+        self.meta_proj = get_proj(
             None,
             emb_dim,
             emb_dropout,
             norm=torch.nn.LayerNorm(len(META_COLS)) if norm_meta else None,
         )
-        self.proj = model.get_proj(
+        self.proj = get_proj(
             None,
             emb_dim,
             emb_dropout,
@@ -128,10 +141,10 @@ class LightningModule(model.LightningModule):
             self.mid_attention = None
 
         if spinal_agg == "linear":
-            self.spinal_linear = model.get_proj(emb_dim * 2, emb_dim, out_dropout)
+            self.spinal_linear = get_proj(emb_dim * 2, emb_dim, out_dropout)
         self.spinal_agg = spinal_agg
 
-        self.heads = torch.nn.ModuleDict({k: model.get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
+        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
         self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
         self.maybe_restore_checkpoint()
 

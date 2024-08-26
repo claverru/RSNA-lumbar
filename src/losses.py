@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Literal, Optional
+from typing import Callable, Dict, List, Literal
 
 import torch
 from torchmetrics import Metric
@@ -13,6 +13,7 @@ class LumbarLoss(torch.nn.Module):
         conditions: List[str] = constants.CONDITIONS,
         gamma: float = 1.0,
         any_severe_spinal_smoothing: float = 0,
+        train_weight_components: bool = False,
     ):
         super().__init__()
 
@@ -26,6 +27,10 @@ class LumbarLoss(torch.nn.Module):
 
         self.do_any_severe_spinal = do_any_severe_spinal
         self.conditions = conditions
+
+        self.weights = (
+            torch.nn.Parameter(torch.zeros(len(conditions) + do_any_severe_spinal)) if train_weight_components else None
+        )
 
     def __compute_severe_spinal_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
@@ -70,12 +75,10 @@ class LumbarLoss(torch.nn.Module):
         pred_batch = self.get_condition_tensors(y_pred_dict, condition)
         return self.cond_loss(pred_batch.to(torch.float), true_batch)
 
-    def forward(
-        self,
-        y_true_dict: Dict[str, torch.Tensor],
-        y_pred_dict: Dict[str, torch.Tensor],
-        weights: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Dict[str, float]:
+    def weight_component(self, loss, weight):
+        return torch.exp(-weight) * loss + 0.5 * weight
+
+    def forward(self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]) -> Dict[str, float]:
         assert all(k in y_true_dict for k in y_pred_dict)
         losses = {}
         for condition in self.conditions:
@@ -83,12 +86,16 @@ class LumbarLoss(torch.nn.Module):
         if self.do_any_severe_spinal:
             losses["any_severe_spinal"] = self.__compute_severe_spinal_loss(y_true_dict, y_pred_dict)
 
-        valid_losses = {k: loss for k, loss in losses.items() if loss != -1.0}
+        if self.weights is not None:
+            valid_losses = {
+                k: self.weight_component(loss, weight)
+                for (k, loss), weight in zip(losses.items(), self.weights)
+                if loss != -1
+            }
+        else:
+            valid_losses = {k: loss for k, loss in losses.items() if loss != -1.0}
 
-        if weights is None:
-            weights = {k: 1 for k in valid_losses}
-
-        total_loss = sum(valid_losses[k] / weights[k] for k in valid_losses) / len(valid_losses)
+        total_loss = sum(valid_losses.values()) / len(valid_losses)
 
         return total_loss, losses
 
