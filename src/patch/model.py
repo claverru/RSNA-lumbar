@@ -21,7 +21,7 @@ class LightningModule(model.LightningModule):
         self.train_loss = losses.LumbarLoss(do_any_severe_spinal)
         self.val_metric = losses.LumbarMetric(do_any_severe_spinal)
         self.norm = torch.nn.InstanceNorm2d(1)
-        self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained, img_size=96)
+        self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained)
         if eval:
             self.backbone = self.backbone.eval()
 

@@ -135,6 +135,8 @@ def load_levels(levels_path: Path = constants.LEVELS_PATH):
 
 
 META_COLS = [
+    # "lumbar_distance",
+    # "lumbar_path_distance",
     "level_distance",
     "x",
     "y",
@@ -184,6 +186,23 @@ def process_pos(meta):
     return meta
 
 
+def add_lumbar_distances(df: pd.DataFrame) -> pd.DataFrame:
+    def distance(a, b):
+        a = np.stack(a.values)
+        b = np.stack(b.values)
+        return np.linalg.norm(a - b, axis=1)
+
+    mean_world = df.groupby(["study_id", "level"], as_index=False)[["xx", "yy", "zz"]].mean()
+    mean_world["xxyyzz"] = mean_world[["xx", "yy", "zz"]].apply(np.array, axis=1)
+    mean_world = mean_world.pivot(index="study_id", columns="level", values="xxyyzz").reset_index()
+    pair_levels = zip(constants.LEVELS[:-1], constants.LEVELS[1:])
+    mean_world["lumbar_distance"] = distance(mean_world["l1_l2"], mean_world["l5_s1"]) / 10
+    mean_world["lumbar_path_distance"] = sum(distance(mean_world[a], mean_world[b]) for a, b in pair_levels) / 10
+    distances = mean_world[["study_id", "lumbar_distance", "lumbar_path_distance"]]
+    df = df.merge(distances, how="inner", on="study_id")
+    return df
+
+
 def load_df(
     keypoints_path: Path = constants.KEYPOINTS_PATH,
     levels_path: Path = constants.LEVELS_PATH,
@@ -207,6 +226,7 @@ def load_df(
     df = df.merge(meta, how="inner", on=constants.BASIC_COLS)
     df = utils.add_xyz_world(df)
     df = utils.add_sides(df)
+    # df = add_lumbar_distances(df)
 
     common_index = ["study_id", "level", "side"]
 

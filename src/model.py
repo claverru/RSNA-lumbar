@@ -7,8 +7,9 @@ from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from torch.optim.lr_scheduler import _LRScheduler
 
 
-def get_proj(in_dim, out_dim, dropout=0, activation=None):
+def get_proj(in_dim, out_dim, dropout=0, activation=None, norm=None):
     return torch.nn.Sequential(
+        norm if norm is not None else torch.nn.Identity(),
         torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
         torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim),
         activation if activation is not None else torch.nn.Identity(),

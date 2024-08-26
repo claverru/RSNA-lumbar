@@ -5,6 +5,7 @@ import torch
 
 from src import constants, losses, model
 from src.patch import model as patch_model
+from src.sequence.data_loading import META_COLS
 
 
 class MaskDropout(torch.nn.Module):
@@ -82,6 +83,8 @@ class LightningModule(model.LightningModule):
         add_mid_attention: bool = False,
         any_severe_spinal_smoothing: float = 0.0,
         spinal_agg: Literal["linear", "mean", "max", "first"] = "max",
+        norm_meta: bool = False,
+        norm_feats: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -93,8 +96,18 @@ class LightningModule(model.LightningModule):
 
         self.conditions = conditions
 
-        self.meta_proj = model.get_proj(None, emb_dim, emb_dropout)
-        self.proj = model.get_proj(None, emb_dim, emb_dropout)
+        self.meta_proj = model.get_proj(
+            None,
+            emb_dim,
+            emb_dropout,
+            norm=torch.nn.LayerNorm(len(META_COLS)) if norm_meta else None,
+        )
+        self.proj = model.get_proj(
+            None,
+            emb_dim,
+            emb_dropout,
+            norm=torch.nn.LayerNorm(self.backbone.backbone.num_features) if norm_feats else None,
+        )
         self.pos = PositionalEncoding(emb_dim, att_dropout, max_len=5000)
 
         self.transformer = torch.nn.Transformer(

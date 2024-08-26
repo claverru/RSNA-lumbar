@@ -95,6 +95,9 @@ class Keypoint:
         return self.x, self.y
 
 
+# 128 patch size
+# PLANE2SPACING = {"Axial T2": 0.27, "Sagittal T1": 0.56, "Sagittal T2/STIR": 0.56}
+# 96 patch size
 PLANE2SPACING = {"Axial T2": 0.35, "Sagittal T1": 0.72, "Sagittal T2/STIR": 0.72}
 
 
