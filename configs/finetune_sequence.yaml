@@ -57,7 +57,7 @@ trainer:
       preds_name: preds.parquet
   - class_path: src.callbacks.CustomBackboneFinetuning
     init_args:
-      unfreeze_at_epoch: -1
+      unfreeze_at_epoch: 1
       unfreeze_bn: true
       backbone_names:
       - backbone
@@ -122,6 +122,9 @@ model:
     add_mid_attention: true
     any_severe_spinal_smoothing: 0.0
     spinal_agg: max
+    norm_meta: false
+    norm_feats: false
+    train_weight_components: false
     optimizer:
       class_path: src.ranger.Ranger
       init_args:
@@ -144,15 +147,15 @@ model:
         last_epoch: -1
     interval: step
     frequency: 1
-    ckpt_path: lightning_logs/version_1/checkpoints/epoch=5_val_loss=0.4132.ckpt
+    ckpt_path: lightning_logs/version_5/checkpoints/epoch=5_val_loss=0.3772.ckpt
 data:
   class_path: src.sequence.data_loading.DataModule
   init_args:
     train_level_side: false
-    keypoints_path: data/preds_keypoints.parquet
+    keypoints_path: lightning_logs/version_3/preds.parquet
     desc_path: data/train_series_descriptions.csv
     train_path: data/train.csv
-    levels_path: data/preds_levels.parquet
+    levels_path: lightning_logs/version_4/preds.parquet
     meta_path: data/metadata.csv
     img_size: 96
     img_dir: mount/train_images_clip

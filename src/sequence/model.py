@@ -8,15 +8,6 @@ from src.patch import model as patch_model
 from src.sequence.data_loading import META_COLS
 
 
-def get_proj(in_dim, out_dim, dropout=0, activation=None, norm=None):
-    return torch.nn.Sequential(
-        norm if norm is not None else torch.nn.Identity(),
-        torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
-        torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim),
-        activation if activation is not None else torch.nn.Identity(),
-    )
-
-
 class MaskDropout(torch.nn.Module):
     def __init__(self, p: float = 0.01, **kwargs):
         super().__init__(**kwargs)
@@ -47,23 +38,6 @@ class PositionalEncoding(torch.nn.Module):
         return self.dropout(x)
 
 
-class LevelSideEmbedding(torch.nn.Module):
-    def __init__(self, n_conditions: int, emb_dim: int):
-        super().__init__()
-        self.emb_dim = emb_dim
-        self.C = n_conditions
-        self.L = len(constants.LEVELS)
-        self.S = len(constants.SIDES)
-        self.level_emb = torch.nn.Parameter(torch.randn(1, self.L, 1, emb_dim) / 100, requires_grad=True)
-        self.side_emb = torch.nn.Parameter(torch.randn(1, self.S, 1, emb_dim) / 100, requires_grad=True)
-
-    def forward(self, x: torch.Tensor):
-        B = x.shape[0]
-        level_emb = self.level_emb.repeat(B, 1, self.S * self.C, 1).flatten(1, 2)
-        side_emb = self.side_emb.repeat(B, self.L, self.C, 1).flatten(1, 2)
-        return x + level_emb + side_emb
-
-
 class CLSEmbedding(torch.nn.Module):
     def __init__(self, num_classes: int = constants.CONDITIONS, emb_dim: int = 512):
         super().__init__()
@@ -75,6 +49,15 @@ class CLSEmbedding(torch.nn.Module):
         x = torch.concat([self.cls_embs.repeat(B, 1, 1), x], axis=1)
         mask = torch.concat([self.cls_mask.repeat(B, 1), mask], axis=1)
         return x, mask
+
+
+class LearnablePositionEncoding(torch.nn.Module):
+    def __init__(self, length: int, emb_dim: int):
+        super().__init__()
+        self.encoding = torch.nn.Parameter(torch.randn(1, length, emb_dim) / 100, requires_grad=True)
+
+    def forward(self, x):
+        return x + self.encoding
 
 
 class LightningModule(model.LightningModule):
@@ -109,13 +92,13 @@ class LightningModule(model.LightningModule):
 
         self.conditions = conditions
 
-        self.meta_proj = get_proj(
+        self.meta_proj = model.get_proj(
             None,
             emb_dim,
             emb_dropout,
             norm=torch.nn.LayerNorm(len(META_COLS)) if norm_meta else None,
         )
-        self.proj = get_proj(
+        self.proj = model.get_proj(
             None,
             emb_dim,
             emb_dropout,
@@ -141,10 +124,10 @@ class LightningModule(model.LightningModule):
             self.mid_attention = None
 
         if spinal_agg == "linear":
-            self.spinal_linear = get_proj(emb_dim * 2, emb_dim, out_dropout)
+            self.spinal_linear = model.get_proj(emb_dim * 2, emb_dim, out_dropout)
         self.spinal_agg = spinal_agg
 
-        self.heads = torch.nn.ModuleDict({k: get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
+        self.heads = torch.nn.ModuleDict({k: model.get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
         self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
         self.maybe_restore_checkpoint()
 

@@ -6,13 +6,6 @@ import torch
 from src import constants, losses, model
 
 
-def get_proj(in_dim, out_dim, dropout=0):
-    return torch.nn.Sequential(
-        torch.nn.Dropout(dropout) if dropout else torch.nn.Identity(),
-        torch.nn.Linear(in_dim, out_dim) if in_dim is not None else torch.nn.LazyLinear(out_dim),
-    )
-
-
 class LightningModule(model.LightningModule):
     def __init__(
         self, arch, linear_dropout=0.2, pretrained=True, eval=True, do_any_severe_spinal: bool = False, **kwargs
@@ -25,7 +18,7 @@ class LightningModule(model.LightningModule):
         if eval:
             self.backbone = self.backbone.eval()
 
-        self.heads = torch.nn.ModuleDict({k: get_proj(None, 3, linear_dropout) for k in constants.CONDITIONS})
+        self.heads = torch.nn.ModuleDict({k: model.get_proj(None, 3, linear_dropout) for k in constants.CONDITIONS})
 
         self.maybe_restore_checkpoint()
 

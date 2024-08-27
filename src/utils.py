@@ -24,7 +24,6 @@ def cat_tensors(
     return result
 
 
-# https://github.com/SeuTao/RSNA2019_Intracranial-Hemorrhage-Detection/blob/376afb448852d4c7951458b93e171afc953500c0/2DNet/src/prepare_data.py#L4
 def load_dcm_img(path: Path, add_channels: bool = True, size: Optional[int] = None) -> np.ndarray:
     dicom = pydicom.read_file(path)
     img: np.ndarray = dicom.pixel_array
@@ -127,16 +126,12 @@ def load_coor(coor_path: Path = constants.COOR_PATH):
 def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
     assert df.index.names[0] == "study_id"
 
-    train = pd.read_csv(constants.TRAIN_PATH)
-    train = train.melt(id_vars="study_id", var_name="condition_level", value_name="severity")
+    train = load_train(constants.TRAIN_PATH, fillna=0)
+    train = train_study2levelside(train)
+    train["any_severe_spinal"] = train.groupby(level=0)["spinal_canal_stenosis"].transform("max")
 
-    coor = load_coor()
-
-    train = coor.merge(train, how="inner", on=["study_id", "condition_level"])
-
-    strats = train["condition_level"] + "_" + train["severity"].fillna("Normal/Mild")
-    groups = train["study_id"]
-
+    strats = train.astype(str).sum(1)
+    groups = train.reset_index()["study_id"]
     skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True)
     for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
         if i == this_split:

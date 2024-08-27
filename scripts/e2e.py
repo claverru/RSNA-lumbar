@@ -11,69 +11,53 @@ def run(commands):
     time.sleep(4)
 
 
-run(["python", "scripts/trainer.py", "fit", "-c", "configs/keypoints.yaml"])
-ckpt_path = next(Path("lightning_logs/version_0").rglob("*.ckpt"))
-run(
-    [
-        "python",
-        "scripts/trainer.py",
-        "predict",
-        "-c=configs/keypoints.yaml",
-        f"--ckpt_path={ckpt_path}",
-        "--data.batch_size=64",
-    ]
-)
+# train
+ckpt_paths = {}
+for i, model_type in enumerate(("keypoints", "levels", "patch")):
+    run(["python", "scripts/trainer.py", "fit", f"-c=configs/{model_type}.yaml"])
+    ckpt_paths[model_type] = next(Path(f"lightning_logs/version_{i}").rglob("*.ckpt"))
 
 
-run(["python", "scripts/trainer.py", "fit", "-c", "configs/levels.yaml"])
-ckpt_path = next(Path("lightning_logs/version_2").rglob("*.ckpt"))
-run(
-    [
-        "python",
-        "scripts/trainer.py",
-        "predict",
-        "-c=configs/levels.yaml",
-        f"--ckpt_path={ckpt_path}",
-        "--data.batch_size=64",
-    ]
-)
+# predict
+for model_type in ("keypoints", "levels"):
+    run(
+        [
+            "python",
+            "scripts/trainer.py",
+            "predict",
+            f"-c=configs/{model_type}.yaml",
+            f"--ckpt_path={ckpt_paths[model_type]}",
+            "--data.batch_size=64",
+        ]
+    )
 
 
-keypoints_path = next(Path("lightning_logs/version_1").rglob("*.parquet"))
-levels_path = next(Path("lightning_logs/version_3").rglob("*.parquet"))
-
-run(["python", "scripts/trainer.py", "fit", "-c=configs/patch.yaml", f"--data.keypoints_path={keypoints_path}"])
-
+# train sequence
+keypoints_path = next(Path("lightning_logs/version_3").rglob("*.parquet"))
+levels_path = next(Path("lightning_logs/version_4").rglob("*.parquet"))
 run(
     [
         "python",
         "scripts/trainer.py",
         "fit",
-        "-c=configs/sequence_level.yaml",
+        "-c=configs/sequence.yaml",
         f"--data.keypoints_path={keypoints_path}",
         f"--data.levels_path={levels_path}",
+        f"--model.image.ckpt_path={ckpt_paths['patch']}",
     ]
 )
 
-# for n_layers in (6, 8):
-#     for emb_dim in (512,):
-#         for n_heads in (4, 8):
-#             run(
-#                 [
-#                     "python",
-#                     "scripts/trainer.py",
-#                     "fit",
-#                     "-c",
-#                     "configs/patchseq.yaml",
-#                     "--model.n_layers",
-#                     f"{n_layers}",
-#                     "--model.emb_dim",
-#                     f"{emb_dim}",
-#                     "--model.n_heads",
-#                     f"{n_heads}",
-#                     "--data.keypoints_path",
-#                     f"{keypoints_path}",
-#                     "--data.levels_path",
-#                     f"{levels_path}",
-#                 ]
-#             )
+
+# finetune sequence
+sequence_ckpt_path = next(Path("lightning_logs/version_5").rglob("*.ckpt"))
+run(
+    [
+        "python",
+        "scripts/trainer.py",
+        "fit",
+        "-c=configs/finetune_sequence.yaml",
+        f"--data.keypoints_path={keypoints_path}",
+        f"--data.levels_path={levels_path}",
+        f"--model.ckpt_path={sequence_ckpt_path}",
+    ]
+)
