@@ -52,12 +52,14 @@ class CLSEmbedding(torch.nn.Module):
 
 
 class LearnablePositionEncoding(torch.nn.Module):
-    def __init__(self, length: int, emb_dim: int):
+    def __init__(self, length: int, emb_dim: int, dropout: float):
         super().__init__()
         self.encoding = torch.nn.Parameter(torch.randn(1, length, emb_dim) / 100, requires_grad=True)
+        self.dropout = torch.nn.Dropout(p=dropout)
 
     def forward(self, x):
-        return x + self.encoding
+        x = x + self.encoding
+        return self.dropout(x)
 
 
 class LightningModule(model.LightningModule):
@@ -78,6 +80,7 @@ class LightningModule(model.LightningModule):
         norm_meta: bool = False,
         norm_feats: bool = False,
         train_weight_components: bool = False,
+        any_severe_spinal_t: float = 0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -86,6 +89,7 @@ class LightningModule(model.LightningModule):
             conditions=conditions,
             any_severe_spinal_smoothing=any_severe_spinal_smoothing,
             train_weight_components=train_weight_components,
+            any_severe_spinal_t=any_severe_spinal_t,
         )
         self.val_metric = losses.LumbarMetric("spinal_canal_stenosis" in conditions, conditions=conditions)
         self.backbone = patch_model.LightningModule(**image)
@@ -118,7 +122,10 @@ class LightningModule(model.LightningModule):
         )
 
         if add_mid_attention:
-            self.mid_attention = model.get_encoder(emb_dim, n_heads, 1, att_dropout)
+            self.mid_attention = torch.nn.Sequential(
+                LearnablePositionEncoding(len(conditions) * len(constants.LEVELS_SIDES), emb_dim, emb_dropout),
+                model.get_encoder(emb_dim, n_heads, 1, att_dropout),
+            )
 
         else:
             self.mid_attention = None

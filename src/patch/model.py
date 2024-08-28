@@ -8,11 +8,18 @@ from src import constants, losses, model
 
 class LightningModule(model.LightningModule):
     def __init__(
-        self, arch, linear_dropout=0.2, pretrained=True, eval=True, do_any_severe_spinal: bool = False, **kwargs
+        self,
+        arch,
+        linear_dropout=0.2,
+        pretrained=True,
+        eval=True,
+        do_any_severe_spinal: bool = False,
+        gamma: float = 1.0,
+        **kwargs,
     ):
         super().__init__(**kwargs)
-        self.train_loss = losses.LumbarLoss(do_any_severe_spinal)
-        self.val_metric = losses.LumbarMetric(do_any_severe_spinal)
+        self.train_loss = losses.LumbarLoss(do_any_severe_spinal, gamma=gamma)
+        self.val_metric = losses.LumbarMetric(do_any_severe_spinal, gamma=gamma)
         self.norm = torch.nn.InstanceNorm2d(1)
         self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained)
         if eval:

@@ -13,6 +13,7 @@ class LumbarLoss(torch.nn.Module):
         conditions: List[str] = constants.CONDITIONS,
         gamma: float = 1.0,
         any_severe_spinal_smoothing: float = 0,
+        any_severe_spinal_t: float = 0,
         train_weight_components: bool = False,
     ):
         super().__init__()
@@ -31,6 +32,7 @@ class LumbarLoss(torch.nn.Module):
         self.weights = (
             torch.nn.Parameter(torch.zeros(len(conditions) + do_any_severe_spinal)) if train_weight_components else None
         )
+        self.any_severe_spinal_t = any_severe_spinal_t
 
     def __compute_severe_spinal_loss(
         self, y_true_dict: Dict[str, torch.Tensor], y_pred_dict: Dict[str, torch.Tensor]
@@ -43,7 +45,13 @@ class LumbarLoss(torch.nn.Module):
 
         severe_spinal_preds = self.get_condition_tensors(y_pred_dict, "spinal_canal_stenosis", torch.stack)
         lse_first_two = severe_spinal_preds[..., :2].logsumexp(-1)
-        severe_spinal_binary_preds = (severe_spinal_preds[..., 2] - lse_first_two).amax(0)
+        severe_spinal_binary_preds = severe_spinal_preds[..., 2] - lse_first_two
+
+        if self.any_severe_spinal_t > 0:
+            att = torch.softmax(severe_spinal_binary_preds / self.any_severe_spinal_t, dim=0)
+            severe_spinal_binary_preds = (att * severe_spinal_binary_preds).sum(0)
+        else:
+            severe_spinal_binary_preds = severe_spinal_binary_preds.amax(0)
 
         weight = torch.pow(2.0, severe_spinal_true)
         severe_spinal_binary_true = torch.where(severe_spinal_true == 2, 1.0, 0.0)
