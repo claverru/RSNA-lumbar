@@ -132,7 +132,7 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
 
     strats = train.astype(str).sum(1)
     groups = train.reset_index()["study_id"]
-    skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True)
+    skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=128)
     for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
         if i == this_split:
             break

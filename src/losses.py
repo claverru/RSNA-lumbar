@@ -11,7 +11,7 @@ class LumbarLoss(torch.nn.Module):
         self,
         do_any_severe_spinal: bool = True,
         conditions: List[str] = constants.CONDITIONS,
-        gamma: float = 1.0,
+        gamma: float = 0.0,
         any_severe_spinal_smoothing: float = 0,
         any_severe_spinal_t: float = 0,
         train_weight_components: bool = False,
@@ -19,7 +19,7 @@ class LumbarLoss(torch.nn.Module):
         super().__init__()
 
         weight = torch.tensor([1.0, 2.0, 4.0])
-        if gamma == 1.0:
+        if gamma == 0.0:
             self.cond_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=weight)
             self.any_severe_spinal_loss = BCEWithLogitsLossSmoothed(any_severe_spinal_smoothing, reduction="none")
         else:
@@ -113,7 +113,7 @@ class LumbarMetric(Metric):
     higher_is_better = False
 
     def __init__(
-        self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS, gamma: float = 1.0
+        self, do_any_severe_spinal: bool = True, conditions: List[str] = constants.CONDITIONS, gamma: float = 0.0
     ):
         super().__init__()
         self.loss_f = LumbarLoss(do_any_severe_spinal, conditions, gamma)

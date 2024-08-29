@@ -11,53 +11,91 @@ def run(commands):
     time.sleep(4)
 
 
-# train
-ckpt_paths = {}
-for i, model_type in enumerate(("keypoints", "levels", "patch")):
-    run(["python", "scripts/trainer.py", "fit", f"-c=configs/{model_type}.yaml"])
-    ckpt_paths[model_type] = next(Path(f"lightning_logs/version_{i}").rglob("*.ckpt"))
+def get_checkpoint(i):
+    return next(Path(f"lightning_logs/version_{i}").rglob("*.ckpt"))
 
 
-# predict
-for model_type in ("keypoints", "levels"):
+def get_preds(i):
+    return next(Path(f"lightning_logs/version_{i}").rglob("*.parquet"))
+
+
+i = 0
+for this_split in range(2):
+    # train keypoints, levels
+    ckpt_paths = {}
+    for model_type in ("keypoints", "levels"):
+        run(
+            [
+                "python",
+                "scripts/trainer.py",
+                "fit",
+                f"-c=configs/{model_type}.yaml",
+                f"--data.this_split={this_split}",
+            ]
+        )
+        ckpt_paths[model_type] = get_checkpoint(i)
+        i += 1
+
+    # predict keypoints, levels
+    preds_paths = {}
+    for model_type in ("keypoints", "levels"):
+        run(
+            [
+                "python",
+                "scripts/trainer.py",
+                "predict",
+                f"-c=configs/{model_type}.yaml",
+                f"--ckpt_path={ckpt_paths[model_type]}",
+                "--data.batch_size=64",
+                f"--data.this_split={this_split}",
+            ]
+        )
+        preds_paths[model_type] = get_preds(i)
+        i += 1
+
+    # train patch
     run(
         [
             "python",
             "scripts/trainer.py",
-            "predict",
-            f"-c=configs/{model_type}.yaml",
-            f"--ckpt_path={ckpt_paths[model_type]}",
-            "--data.batch_size=64",
+            "fit",
+            "-c=configs/patch.yaml",
+            f"--data.keypoints_path={preds_paths['keypoints']}",
+            f"--data.this_split={this_split}",
         ]
     )
+    ckpt_paths["patch"] = get_checkpoint(i)
+    i += 1
 
+    # train sequence
+    run(
+        [
+            "python",
+            "scripts/trainer.py",
+            "fit",
+            "-c=configs/sequence.yaml",
+            f"--data.keypoints_path={preds_paths['keypoints']}",
+            f"--data.levels_path={preds_paths['levels']}",
+            f"--model.image.ckpt_path={ckpt_paths['patch']}",
+            f"--data.this_split={this_split}",
+        ]
+    )
+    ckpt_paths["sequence"] = get_checkpoint(i)
+    i += 1
 
-# train sequence
-keypoints_path = next(Path("lightning_logs/version_3").rglob("*.parquet"))
-levels_path = next(Path("lightning_logs/version_4").rglob("*.parquet"))
-run(
-    [
-        "python",
-        "scripts/trainer.py",
-        "fit",
-        "-c=configs/sequence.yaml",
-        f"--data.keypoints_path={keypoints_path}",
-        f"--data.levels_path={levels_path}",
-        f"--model.image.ckpt_path={ckpt_paths['patch']}",
-    ]
-)
+    for k, ckpt_path in ckpt_paths.items():
+        print(k, ckpt_path)
 
-
-# finetune sequence
-sequence_ckpt_path = next(Path("lightning_logs/version_5").rglob("*.ckpt"))
-run(
-    [
-        "python",
-        "scripts/trainer.py",
-        "fit",
-        "-c=configs/finetune_sequence.yaml",
-        f"--data.keypoints_path={keypoints_path}",
-        f"--data.levels_path={levels_path}",
-        f"--model.ckpt_path={sequence_ckpt_path}",
-    ]
-)
+    # finetune sequence
+    # sequence_ckpt_path = next(Path("lightning_logs/version_5").rglob("*.ckpt"))
+    # run(
+    #     [
+    #         "python",
+    #         "scripts/trainer.py",
+    #         "fit",
+    #         "-c=configs/finetune_sequence.yaml",
+    #         f"--data.keypoints_path={keypoints_path}",
+    #         f"--data.levels_path={levels_path}",
+    #         f"--model.ckpt_path={sequence_ckpt_path}",
+    #     ]
+    # )
