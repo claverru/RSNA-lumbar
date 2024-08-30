@@ -83,7 +83,7 @@ trainer:
   gradient_clip_val: null
   gradient_clip_algorithm: null
   deterministic: null
-  benchmark: null
+  benchmark: true
   inference_mode: true
   use_distributed_sampler: true
   profiler: null
@@ -104,10 +104,12 @@ model:
     pretrained: true
     eval: true
     do_any_severe_spinal: false
+    gamma: 0.0
+    train_weight_components: false
     optimizer:
       class_path: torch.optim.Adam
       init_args:
-        lr: 0.0003
+        lr: 0.00025
         betas:
         - 0.9
         - 0.999
@@ -122,7 +124,7 @@ model:
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
-        warmup_steps: 152
+        warmup_steps: 305
         last_epoch: -1
     interval: step
     frequency: 1
@@ -130,7 +132,6 @@ model:
 data:
   class_path: src.patch.data_loading.DataModule
   init_args:
-    keypoints_path: data/preds_keypoints.parquet
     coor_path: data/train_label_coordinates.csv
     train_path: data/train.csv
     desc_path: data/train_series_descriptions.csv

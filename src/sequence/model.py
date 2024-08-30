@@ -99,16 +99,16 @@ class LightningModule(model.LightningModule):
         self.meta_proj = model.get_proj(
             None,
             emb_dim,
-            emb_dropout,
+            0.0,
             norm=torch.nn.LayerNorm(len(META_COLS)) if norm_meta else None,
         )
         self.proj = model.get_proj(
             None,
             emb_dim,
-            emb_dropout,
+            0.0,
             norm=torch.nn.LayerNorm(self.backbone.backbone.num_features) if norm_feats else None,
         )
-        self.pos = PositionalEncoding(emb_dim, att_dropout, max_len=5000)
+        self.pos = PositionalEncoding(emb_dim, emb_dropout, max_len=5000)
 
         self.transformer = torch.nn.Transformer(
             emb_dim,

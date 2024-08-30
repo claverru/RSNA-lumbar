@@ -67,7 +67,7 @@ trainer:
       - heads
       - cls_emb
   fast_dev_run: false
-  max_epochs: 10000
+  max_epochs: 1
   min_epochs: null
   max_steps: -1
   min_steps: null
@@ -114,17 +114,18 @@ model:
     - neural_foraminal_narrowing
     - subarticular_stenosis
     emb_dim: 512
-    n_heads: 4
-    n_layers: 6
-    att_dropout: 0.1
+    n_heads: 8
+    n_layers: 3
+    att_dropout: 0.2
     emb_dropout: 0.1
-    out_dropout: 0.3
+    out_dropout: 0.5
     add_mid_attention: true
     any_severe_spinal_smoothing: 0.0
     spinal_agg: max
     norm_meta: false
     norm_feats: false
     train_weight_components: false
+    any_severe_spinal_t: 0.0
     optimizer:
       class_path: src.ranger.Ranger
       init_args:
@@ -147,15 +148,13 @@ model:
         last_epoch: -1
     interval: step
     frequency: 1
-    ckpt_path: lightning_logs/version_5/checkpoints/epoch=5_val_loss=0.3772.ckpt
+    ckpt_path: checkpoints/sequence_pre/checkpoints/epoch=2_val_loss=0.3724.ckpt
 data:
   class_path: src.sequence.data_loading.DataModule
   init_args:
     train_level_side: false
-    keypoints_path: lightning_logs/version_3/preds.parquet
     desc_path: data/train_series_descriptions.csv
     train_path: data/train.csv
-    levels_path: lightning_logs/version_4/preds.parquet
     meta_path: data/metadata.csv
     img_size: 96
     img_dir: mount/train_images_clip
