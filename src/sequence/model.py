@@ -65,7 +65,7 @@ class LearnablePositionEncoding(torch.nn.Module):
 class LightningModule(model.LightningModule):
     def __init__(
         self,
-        image: dict,
+        backbone: patch_model.LightningModule,
         train_any_severe_spinal: bool = True,
         conditions: List[str] = constants.CONDITIONS,
         emb_dim: int = 512,
@@ -92,7 +92,7 @@ class LightningModule(model.LightningModule):
             any_severe_spinal_t=any_severe_spinal_t,
         )
         self.val_metric = losses.LumbarMetric("spinal_canal_stenosis" in conditions, conditions=conditions)
-        self.backbone = patch_model.LightningModule(**image)
+        self.backbone = backbone
 
         self.conditions = conditions
 

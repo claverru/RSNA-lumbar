@@ -27,7 +27,7 @@ class LightningModule(L.LightningModule):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["backbone"])
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.interval = interval
