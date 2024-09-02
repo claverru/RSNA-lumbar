@@ -122,15 +122,18 @@ def collate_fn(data):
     return [utils.cat_tensors(x, f) for x, f in zip(data, functions)]
 
 
-LEVELS_THRESHOLD = 0.55
+def get_level_ids(x):
+    target = np.linspace(0, 4, 5)
+    x_4 = target - x * 4
+    mask = (-0.65 <= x_4) & (x_4 <= 0.55)
+    return np.where(mask)[0]
 
 
 def load_levels(levels_path: Path = constants.LEVELS_PATH):
     df = pd.read_parquet(levels_path)
-    target = np.linspace(0, 4, 5)
-    df["level_id"] = df["pred_f0"].apply(lambda x: np.where(np.abs(x * 4 - target) <= LEVELS_THRESHOLD)[0])
+    df["level_id"] = df["pred_f0"].apply(get_level_ids)
     df = df.explode("level_id")
-    df["level_distance"] = df.pop("pred_f0") - df["level_id"] / 4
+    df["level_distance"] = df["level_id"] - df.pop("pred_f0") * 4
     df["level_distance"] = df["level_distance"].astype(float)
     df["level"] = df.pop("level_id").map(lambda x: constants.LEVELS[x])
     df = df.sort_values(constants.BASIC_COLS)

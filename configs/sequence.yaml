@@ -102,10 +102,18 @@ model:
     backbone:
       class_path: src.patch.model.LightningModule
       init_args:
-        ckpt_path: checkpoints/patch/checkpoints/epoch=7_val_loss=0.4412.ckpt
         arch: regnetz_b16.ra3_in1k
-        eval: true
+        linear_dropout: 0.2
         pretrained: false
+        eval: true
+        do_any_severe_spinal: false
+        gamma: 0.0
+        train_weight_components: false
+        optimizer: torch.optim.Adam
+        lr_scheduler: torch.optim.lr_scheduler.ConstantLR
+        interval: epoch
+        frequency: 1
+        ckpt_path: checkpoints/patch/checkpoints/epoch=7_val_loss=0.4412.ckpt
     train_any_severe_spinal: false
     conditions:
     - spinal_canal_stenosis
@@ -125,20 +133,20 @@ model:
     train_weight_components: false
     any_severe_spinal_t: 0.0
     optimizer:
-      class_path: torch.optim.AdamW
+      class_path: src.ranger.Ranger
       init_args:
-        lr: 0.0001
+        lr: 0.0002
+        alpha: 0.5
+        k: 6
+        N_sma_threshhold: 5
         betas:
-        - 0.9
+        - 0.95
         - 0.999
-        eps: 1.0e-08
-        weight_decay: 0.02
-        amsgrad: false
-        maximize: false
-        foreach: null
-        capturable: false
-        differentiable: false
-        fused: null
+        eps: 1.0e-05
+        weight_decay: 0
+        use_gc: true
+        gc_conv_only: false
+        gc_loc: true
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
@@ -151,8 +159,10 @@ data:
   class_path: src.sequence.data_loading.DataModule
   init_args:
     train_level_side: true
+    keypoints_path: data/preds_keypoints.parquet
     desc_path: data/train_series_descriptions.csv
     train_path: data/train.csv
+    levels_path: data/preds_levels.parquet
     meta_path: data/metadata.csv
     img_size: 96
     img_dir: mount/train_images_clip
