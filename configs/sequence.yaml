@@ -62,7 +62,7 @@ trainer:
       backbone_names:
       - backbone
   fast_dev_run: false
-  max_epochs: 12
+  max_epochs: 15
   min_epochs: null
   max_steps: -1
   min_steps: null
@@ -113,7 +113,7 @@ model:
         lr_scheduler: torch.optim.lr_scheduler.ConstantLR
         interval: epoch
         frequency: 1
-        ckpt_path: checkpoints/patch/checkpoints/epoch=7_val_loss=0.4412.ckpt
+        ckpt_path: lightning_logs/version_0/checkpoints/epoch=7_val_loss=0.4256.ckpt
     train_any_severe_spinal: false
     conditions:
     - spinal_canal_stenosis
@@ -123,13 +123,14 @@ model:
     n_heads: 8
     n_layers: 3
     att_dropout: 0.2
-    emb_dropout: 0.1
     out_dropout: 0.5
     add_mid_attention: false
     any_severe_spinal_smoothing: 0.0
     spinal_agg: max
-    norm_meta: false
+    norm_meta: true
     norm_feats: false
+    meta_dropout: 0.3
+    feats_dropout: 0.1
     train_weight_components: false
     any_severe_spinal_t: 0.0
     optimizer:

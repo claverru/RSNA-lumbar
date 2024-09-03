@@ -51,7 +51,7 @@ model:
       init_args:
         warmup_steps: 98
         last_epoch: -1
-    ckpt_path: lightning_logs/version_0/checkpoints/epoch=2_val_loss=0.3722.ckpt
+    ckpt_path: lightning_logs/version_1/checkpoints/epoch=7_val_loss=0.3716.ckpt
 data:
   class_path: src.sequence.data_loading.DataModule
   init_args:

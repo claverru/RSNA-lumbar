@@ -76,26 +76,29 @@ for this_split in range(2):
             "-c=configs/sequence.yaml",
             f"--data.keypoints_path={preds_paths['keypoints']}",
             f"--data.levels_path={preds_paths['levels']}",
-            f"--model.image.ckpt_path={ckpt_paths['patch']}",
+            f"--model.backbone.ckpt_path={ckpt_paths['patch']}",
             f"--data.this_split={this_split}",
         ]
     )
     ckpt_paths["sequence"] = get_checkpoint(i)
     i += 1
 
+    # finetune sequence
+    run(
+        [
+            "python",
+            "scripts/trainer.py",
+            "fit",
+            "-c=configs/sequence.yaml",
+            "-c=configs/finetune_sequence.yaml",
+            f"--data.keypoints_path={preds_paths['keypoints']}",
+            f"--data.levels_path={preds_paths['levels']}",
+            f"--model.ckpt_path={ckpt_paths['sequence']}",
+            f"--data.this_split={this_split}",
+        ]
+    )
+    ckpt_paths["finetune_sequence"] = get_checkpoint(i)
+    i += 1
+
     for k, ckpt_path in ckpt_paths.items():
         print(k, ckpt_path)
-
-    # finetune sequence
-    # sequence_ckpt_path = next(Path("lightning_logs/version_5").rglob("*.ckpt"))
-    # run(
-    #     [
-    #         "python",
-    #         "scripts/trainer.py",
-    #         "fit",
-    #         "-c=configs/finetune_sequence.yaml",
-    #         f"--data.keypoints_path={keypoints_path}",
-    #         f"--data.levels_path={levels_path}",
-    #         f"--model.ckpt_path={sequence_ckpt_path}",
-    #     ]
-    # )

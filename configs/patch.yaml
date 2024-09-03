@@ -107,20 +107,20 @@ model:
     gamma: 0.0
     train_weight_components: false
     optimizer:
-      class_path: torch.optim.Adam
+      class_path: src.ranger.Ranger
       init_args:
-        lr: 0.00025
+        lr: 0.001
+        alpha: 0.5
+        k: 6
+        N_sma_threshhold: 5
         betas:
-        - 0.9
+        - 0.95
         - 0.999
-        eps: 1.0e-08
-        weight_decay: 0.0
-        amsgrad: false
-        foreach: null
-        maximize: false
-        capturable: false
-        differentiable: false
-        fused: null
+        eps: 1.0e-05
+        weight_decay: 0.02
+        use_gc: true
+        gc_conv_only: false
+        gc_loc: true
     lr_scheduler:
       class_path: src.model.WarmupLR
       init_args:
@@ -132,6 +132,7 @@ model:
 data:
   class_path: src.patch.data_loading.DataModule
   init_args:
+    keypoints_path: data/preds_keypoints.parquet
     coor_path: data/train_label_coordinates.csv
     train_path: data/train.csv
     desc_path: data/train_series_descriptions.csv

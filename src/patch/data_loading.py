@@ -74,7 +74,7 @@ def get_aug_transforms(img_size):
                 shear=(-10, 10),
                 translate_percent=0.0625,
                 scale=(0.8, 1.2),
-                p=0.3,
+                p=1.0,
                 interpolation=cv2.INTER_CUBIC,
                 mode=cv2.BORDER_CONSTANT,
             ),
@@ -86,17 +86,6 @@ def get_aug_transforms(img_size):
             ToTensorV2(),
         ]
     )
-
-
-LEVEL2ANGLE = {
-    "l1_l2": 9.492165632503335,
-    "l2_l3": 6.48974669112818,
-    "l3_l4": 0.2562395236298992,
-    "l4_l5": -10.442638805859872,
-    "l5_s1": -28.4725950244635,
-    "right": 0,
-    "left": 0,
-}
 
 
 def get_angle(x1, y1, x2, y2):
@@ -168,14 +157,12 @@ def load_keypoints(
     right = df["type"].str.contains("right")
     left = ~right
     df["type"] = df["type"].str.rsplit("_", n=1, expand=True)[0]
+    df["type"] = df["type"].map(lambda x: {"left": "right", "right": "left"}.get(x, x))
 
     x1, y1 = df.loc[left, "x_"].values, df.loc[left, "y_"].values
     x2, y2 = df.loc[right, "x_"].values, df.loc[right, "y_"].values
 
     df["angle"] = get_angle(x1, y1, x2, y2).repeat(2)
-    # df["mean_angle"] = df["type"].map(LEVEL2ANGLE)
-    # df["angle"] = df["angle"].where((df["angle"] - df["mean_angle"]).abs() < 10, df["mean_angle"])
-    # df = df.drop(columns="mean_angle")
 
     df = df[is_axial | (is_sagittal & right)]
 

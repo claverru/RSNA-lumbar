@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import albumentations as A
 import cv2
@@ -95,8 +95,6 @@ class Keypoint:
         return self.x, self.y
 
 
-# 128 patch size
-# PLANE2SPACING = {"Axial T2": 0.27, "Sagittal T1": 0.56, "Sagittal T2/STIR": 0.56}
 # 96 patch size
 PLANE2SPACING = {"Axial T2": 0.35, "Sagittal T1": 0.72, "Sagittal T2/STIR": 0.72}
 
@@ -128,50 +126,3 @@ def angle_crop_size(img: Image, kp: Keypoint, angle: float, size: int, plane: st
     cropped = cv2.getRectSubPix(rotated, size, (bound_w / 2, bound_h / 2))
 
     return cropped
-
-
-def default_limits(kp: Keypoint, size: int) -> Tuple[int, int, int, int]:
-    xmin = kp.x - int(size * 0.5)
-    ymin = kp.y - int(size * 0.5)
-    xmax = kp.x + int(size * 0.5)
-    ymax = kp.y + int(size * 0.5)
-    return xmin, ymin, xmax, ymax
-
-
-def sagittal_t1_limits(kp: Keypoint, size: int) -> Tuple[int, int, int, int]:
-    xmin = kp.x - int(size * 0.60)
-    xmax = kp.x + int(size * 0.40)
-    ymin = kp.y - int(size * 0.23)
-    ymax = kp.y + int(size * 0.30)
-    return xmin, ymin, xmax, ymax
-
-
-def sagittal_t2_limits(kp: Keypoint, size: int) -> Tuple[int, int, int, int]:
-    xmin = kp.x - int(size * 0.7)
-    xmax = kp.x + int(size * 0.3)
-    ymin = kp.y - int(size * 0.3)
-    ymax = kp.y + int(size * 0.3)
-    return xmin, ymin, xmax, ymax
-
-
-def axial_t2_limits(kp: Keypoint, size: int) -> Tuple[int, int, int, int]:
-    xmin = kp.x - int(size * 0.5)
-    xmax = kp.x + int(size * 0.5)
-    ymin = kp.y - int(size * 0.3)
-    ymax = kp.y + int(size * 0.7)
-    return xmin, ymin, xmax, ymax
-
-
-LIMITS = {
-    None: default_limits,
-    "Sagittal T1": sagittal_t1_limits,
-    "Sagittal T2/STIR": sagittal_t2_limits,
-    "Axial T2": axial_t2_limits,
-}
-
-
-def crop_size(img: Image, kp: Keypoint, size: int = 96, plane: str = None):
-    xmin, ymin, xmax, ymax = LIMITS[plane](kp, size)
-    xmin, ymin, xmax, ymax = max(xmin, 0), max(ymin, 0), min(xmax, img.w), min(ymax, img.h)
-    patch = img.get()[ymin:ymax, xmin:xmax]
-    return patch

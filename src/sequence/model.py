@@ -22,10 +22,8 @@ class MaskDropout(torch.nn.Module):
 
 
 class PositionalEncoding(torch.nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+    def __init__(self, d_model: int, max_len: int = 5000):
         super().__init__()
-        self.dropout = torch.nn.Dropout(p=dropout)
-
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
         pe = torch.zeros(max_len, 1, d_model)
@@ -34,8 +32,7 @@ class PositionalEncoding(torch.nn.Module):
         self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.pe[: x.size(0)]
-        return self.dropout(x)
+        return x + self.pe[: x.size(0)]
 
 
 class CLSEmbedding(torch.nn.Module):
@@ -52,14 +49,12 @@ class CLSEmbedding(torch.nn.Module):
 
 
 class LearnablePositionEncoding(torch.nn.Module):
-    def __init__(self, length: int, emb_dim: int, dropout: float):
+    def __init__(self, length: int, emb_dim: int):
         super().__init__()
         self.encoding = torch.nn.Parameter(torch.randn(1, length, emb_dim) / 100, requires_grad=True)
-        self.dropout = torch.nn.Dropout(p=dropout)
 
     def forward(self, x):
-        x = x + self.encoding
-        return self.dropout(x)
+        return x + self.encoding
 
 
 class LightningModule(model.LightningModule):
@@ -72,7 +67,8 @@ class LightningModule(model.LightningModule):
         n_heads: int = 8,
         n_layers: int = 6,
         att_dropout: float = 0.1,
-        emb_dropout: float = 0.1,
+        meta_dropout: float = 0.1,
+        feats_dropout: float = 0.1,
         out_dropout: float = 0.3,
         add_mid_attention: bool = False,
         any_severe_spinal_smoothing: float = 0.0,
@@ -97,18 +93,19 @@ class LightningModule(model.LightningModule):
         self.conditions = conditions
 
         self.meta_proj = model.get_proj(
-            None,
+            len(META_COLS),
             emb_dim,
-            0.0,
+            meta_dropout,
             norm=torch.nn.LayerNorm(len(META_COLS)) if norm_meta else None,
         )
         self.proj = model.get_proj(
-            None,
+            self.backbone.backbone.num_features,
             emb_dim,
-            0.0,
+            feats_dropout,
             norm=torch.nn.LayerNorm(self.backbone.backbone.num_features) if norm_feats else None,
         )
-        self.pos = PositionalEncoding(emb_dim, emb_dropout, max_len=5000)
+        self.meta_pos = PositionalEncoding(emb_dim, max_len=2000)
+        self.feats_pos = PositionalEncoding(emb_dim, max_len=2000)
 
         self.transformer = torch.nn.Transformer(
             emb_dim,
@@ -123,7 +120,7 @@ class LightningModule(model.LightningModule):
 
         if add_mid_attention:
             self.mid_attention = torch.nn.Sequential(
-                LearnablePositionEncoding(len(conditions) * len(constants.LEVELS_SIDES), emb_dim, emb_dropout),
+                LearnablePositionEncoding(len(conditions) * len(constants.LEVELS_SIDES), emb_dim),
                 model.get_encoder(emb_dim, n_heads, 1, att_dropout),
             )
 
@@ -153,8 +150,8 @@ class LightningModule(model.LightningModule):
 
         meta = self.meta_proj(meta)
 
-        feats = self.pos(feats)
-        meta = self.pos(meta)
+        feats = self.feats_pos(feats)
+        meta = self.meta_pos(meta)
 
         feats, decoder_mask = self.cls_emb(feats, mask)
 

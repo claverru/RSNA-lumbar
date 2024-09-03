@@ -199,7 +199,7 @@ def add_relative_position(meta: pd.DataFrame) -> pd.DataFrame:
 
 def add_sides(df: pd.DataFrame) -> pd.DataFrame:
     saggital_patient_side = df["pos_x"].apply(lambda x: "right" if x < 0.5 else "left")
-    axial_patient_side = df["type"].map(lambda x: {"right": "left", "left": "right"}.get(x, x))
+    axial_patient_side = df["type"]
     df["side"] = axial_patient_side.where(axial_patient_side.isin(["right", "left"]), saggital_patient_side)
     return df
 

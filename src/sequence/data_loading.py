@@ -140,55 +140,13 @@ def load_levels(levels_path: Path = constants.LEVELS_PATH):
     return df
 
 
-META_COLS = [
-    # "lumbar_distance",
-    # "lumbar_path_distance",
-    "level_distance",
-    "x",
-    "y",
-    "xx",
-    "yy",
-    "zz",
-    # "xx_center",
-    # "yy_center",
-    # "zz_center",
-    "pos_x",
-    "pos_y",
-    "pos_z",
-    "nx",
-    "ny",
-    "nz",
-    # "center_x",
-    # "center_y",
-    # "SliceLocation",
-    "SliceThickness",
-    # "ImageOrientationPatient_0",
-    # "ImageOrientationPatient_1",
-    # "ImageOrientationPatient_2",
-    # "ImageOrientationPatient_3",
-    # "ImageOrientationPatient_4",
-    # "ImageOrientationPatient_5",
-    # "PixelSpacing_0",
-    # "PixelSpacing_1",
-    # "ImagePositionPatient_0",
-    # "ImagePositionPatient_1",
-    # "ImagePositionPatient_2",
-    # "BitsStored",
-    # "Columns",
-    # "Rows",
-]
+META_COLS = ["level_distance", "xx", "yy", "zz", "nx", "ny", "nz"]
 
 
-def process_world(meta, suf=""):
+def mirror_world(meta, suf=""):
     meta["xx" + suf] = meta.groupby(level=[0, 1, 2])["xx" + suf].transform(lambda x: x if x.mean() > 0 else -x) / 10
     meta["yy" + suf] = meta["yy" + suf] / 10
     meta["zz" + suf] = meta.groupby(level=[0, 1, 2])["zz" + suf].transform(lambda x: x - x.min()) / 10
-    return meta
-
-
-def process_pos(meta):
-    meta["pos_x"] = (0.5 - meta["pos_x"]).abs()
-    meta["poz_z"] = meta.groupby(level=[0, 1, 2])["pos_z"].transform(lambda x: (x - x.min()) / (x.max() - x.min())) / 10
     return meta
 
 
@@ -232,14 +190,12 @@ def load_df(
     df = df.merge(meta, how="inner", on=constants.BASIC_COLS)
     df = utils.add_xyz_world(df)
     df = utils.add_sides(df)
-    # df = add_lumbar_distances(df)
 
     common_index = ["study_id", "level", "side"]
 
     # sort, clean and index
     df = df.set_index(common_index).sort_index()
-    df = process_world(df)
-    df = process_pos(df)
+    df = mirror_world(df)
 
     x = df[["series_description", "img_path", "PixelSpacing_0", "PixelSpacing_1", "x", "y", "angle"]]
     new_meta = df[META_COLS]
