@@ -20,7 +20,7 @@ def get_preds(i):
 
 
 i = 0
-for this_split in range(2):
+for this_split in range(1, 2):
     # train keypoints, levels
     ckpt_paths = {}
     for model_type in ("keypoints", "levels"):
@@ -46,7 +46,6 @@ for this_split in range(2):
                 "predict",
                 f"-c=configs/{model_type}.yaml",
                 f"--ckpt_path={ckpt_paths[model_type]}",
-                "--data.batch_size=64",
                 f"--data.this_split={this_split}",
             ]
         )
@@ -95,6 +94,7 @@ for this_split in range(2):
             f"--data.levels_path={preds_paths['levels']}",
             f"--model.ckpt_path={ckpt_paths['sequence']}",
             f"--data.this_split={this_split}",
+            "--trainer.max_epochs=3",
         ]
     )
     ckpt_paths["finetune_sequence"] = get_checkpoint(i)

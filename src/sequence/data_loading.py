@@ -254,7 +254,7 @@ class DataModule(L.LightningDataModule):
 
         if stage == "predict":
             fake_train = self.df[[]].droplevel([1, 2])
-            transforms = get_aug_transforms(self.img_size) if self.tta else get_transforms(self.img_size)
+            transforms = get_aug_transforms(self.img_size, tta=True) if self.tta else get_transforms(self.img_size)
             self.predict_ds = Dataset(fake_train, self.df, self.meta, self.img_size, transforms)
 
     def train_dataloader(self):

@@ -64,7 +64,7 @@ def get_transforms(img_size):
     )
 
 
-def get_aug_transforms(img_size):
+def get_aug_transforms(img_size, tta=False):
     return A.Compose(
         [
             A.LongestMaxSize(img_size, interpolation=cv2.INTER_CUBIC),
@@ -80,8 +80,8 @@ def get_aug_transforms(img_size):
             ),
             A.Perspective(0.2, p=0.5, interpolation=cv2.INTER_CUBIC, pad_mode=cv2.BORDER_CONSTANT, pad_val=0),
             A.PadIfNeeded(img_size, img_size, position="random", border_mode=cv2.BORDER_CONSTANT, value=0),
-            A.GaussNoise(var_limit=20, noise_scale_factor=0.90, mean=0, p=0.2),
-            A.MotionBlur(blur_limit=(3, 7), p=0.2),
+            A.GaussNoise(var_limit=20, noise_scale_factor=0.90, mean=0, p=0.2 * (not tta)),
+            A.MotionBlur(blur_limit=(3, 7), p=0.2 * (not tta)),
             A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ]
