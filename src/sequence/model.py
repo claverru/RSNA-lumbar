@@ -77,6 +77,7 @@ class LightningModule(model.LightningModule):
         norm_feats: bool = False,
         train_weight_components: bool = False,
         any_severe_spinal_t: float = 0,
+        ordinal: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -86,6 +87,7 @@ class LightningModule(model.LightningModule):
             any_severe_spinal_smoothing=any_severe_spinal_smoothing,
             train_weight_components=train_weight_components,
             any_severe_spinal_t=any_severe_spinal_t,
+            ordinal=ordinal,
         )
         self.val_metric = losses.LumbarMetric("spinal_canal_stenosis" in conditions, conditions=conditions)
         self.backbone = backbone

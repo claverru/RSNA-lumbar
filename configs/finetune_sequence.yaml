@@ -1,6 +1,7 @@
 # lightning.pytorch==2.2.5
 seed_everything: 128
 trainer:
+  max_epochs: 4
   callbacks:
   - class_path: lightning.pytorch.callbacks.ModelCheckpoint
     init_args:

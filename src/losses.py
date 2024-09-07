@@ -12,6 +12,7 @@ class LumbarLoss(torch.nn.Module):
         do_any_severe_spinal: bool = True,
         conditions: List[str] = constants.CONDITIONS,
         gamma: float = 0.0,
+        ordinal: bool = False,
         any_severe_spinal_smoothing: float = 0,
         any_severe_spinal_t: float = 0,
         train_weight_components: bool = False,
@@ -19,7 +20,10 @@ class LumbarLoss(torch.nn.Module):
         super().__init__()
 
         weight = torch.tensor([1.0, 2.0, 4.0])
-        if gamma == 0.0:
+        if ordinal:
+            self.cond_loss = OrdinalCrossEntropyLoss(3, ignore_index=-1, weight=weight)
+            self.any_severe_spinal_loss = BCEWithLogitsLossSmoothed(any_severe_spinal_smoothing, reduction="none")
+        elif gamma == 0.0:
             self.cond_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=weight)
             self.any_severe_spinal_loss = BCEWithLogitsLossSmoothed(any_severe_spinal_smoothing, reduction="none")
         else:
@@ -183,3 +187,43 @@ class BCEWithLogitsLossSmoothed(torch.nn.BCEWithLogitsLoss):
     def forward(self, pred: torch.Tensor, target: torch.Tensor):
         target = target * (1 - self.smoothing) + (self.smoothing / 2)
         return super().forward(pred, target)
+
+
+class OrdinalCrossEntropyLoss(torch.nn.Module):
+    def __init__(
+        self,
+        num_classes,
+        weight=None,
+        ignore_index: int = -100,
+        reduction: Literal["mean", "sum", "none"] = "mean",
+    ):
+        super().__init__()
+        self.num_classes = num_classes
+        self.ignore_index = ignore_index
+        self.reduction = reduction
+
+        self.base_loss = torch.nn.CrossEntropyLoss(weight=weight, reduction="none")
+
+    def forward(self, preds: torch.Tensor, target: torch.Tensor):
+        valid = target != self.ignore_index
+
+        preds = preds[valid]
+        target = target[valid]
+
+        base_loss = self.base_loss(preds, target)
+
+        # Calculate weights based on distance
+        weights = torch.abs(torch.arange(self.num_classes).unsqueeze(0).to(preds.device) - target.unsqueeze(1)) + 1
+        weights = weights[torch.arange(target.size(0)).to(preds.device), target].float()
+        # weights /= weights.sum()
+
+        # Apply weights to the base loss
+        weighted_loss = base_loss * weights
+
+        match self.reduction:
+            case "mean":
+                return weighted_loss.mean()
+            case "sum":
+                return weighted_loss.sum()
+            case "none":
+                return weighted_loss

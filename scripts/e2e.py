@@ -20,7 +20,7 @@ def get_preds(i):
 
 
 i = 0
-for this_split in range(1, 2):
+for this_split in range(0, 5):
     # train keypoints, levels
     ckpt_paths = {}
     for model_type in ("keypoints", "levels"):
@@ -94,7 +94,7 @@ for this_split in range(1, 2):
             f"--data.levels_path={preds_paths['levels']}",
             f"--model.ckpt_path={ckpt_paths['sequence']}",
             f"--data.this_split={this_split}",
-            "--trainer.max_epochs=3",
+            "--trainer.max_epochs=2",
         ]
     )
     ckpt_paths["finetune_sequence"] = get_checkpoint(i)
