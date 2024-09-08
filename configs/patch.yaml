@@ -105,7 +105,6 @@ model:
     eval: true
     do_any_severe_spinal: false
     gamma: 0.0
-    train_weight_components: false
     optimizer:
       class_path: src.ranger.Ranger
       init_args:

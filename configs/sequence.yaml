@@ -108,12 +108,12 @@ model:
         eval: true
         do_any_severe_spinal: false
         gamma: 0.0
-        train_weight_components: false
         optimizer: torch.optim.Adam
         lr_scheduler: torch.optim.lr_scheduler.ConstantLR
         interval: epoch
         frequency: 1
-        ckpt_path: lightning_logs/version_0/checkpoints/epoch=7_val_loss=0.4256.ckpt
+        ckpt_path: trash/epoch7_val_loss0.4256.ckpt
+    random_weights: true
     train_any_severe_spinal: false
     conditions:
     - spinal_canal_stenosis
@@ -131,7 +131,6 @@ model:
     norm_feats: false
     meta_dropout: 0.3
     feats_dropout: 0.1
-    train_weight_components: false
     any_severe_spinal_t: 0.0
     optimizer:
       class_path: src.ranger.Ranger

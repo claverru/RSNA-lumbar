@@ -75,7 +75,7 @@ class LightningModule(model.LightningModule):
         spinal_agg: Literal["linear", "mean", "max", "first"] = "max",
         norm_meta: bool = False,
         norm_feats: bool = False,
-        train_weight_components: bool = False,
+        random_weights: bool = False,
         any_severe_spinal_t: float = 0,
         ordinal: bool = False,
         **kwargs,
@@ -85,7 +85,7 @@ class LightningModule(model.LightningModule):
             train_any_severe_spinal,
             conditions=conditions,
             any_severe_spinal_smoothing=any_severe_spinal_smoothing,
-            train_weight_components=train_weight_components,
+            random_weights=random_weights,
             any_severe_spinal_t=any_severe_spinal_t,
             ordinal=ordinal,
         )

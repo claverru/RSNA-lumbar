@@ -15,13 +15,10 @@ class LightningModule(model.LightningModule):
         eval=True,
         do_any_severe_spinal: bool = False,
         gamma: float = 0.0,
-        train_weight_components: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.train_loss = losses.LumbarLoss(
-            do_any_severe_spinal, gamma=gamma, train_weight_components=train_weight_components
-        )
+        self.train_loss = losses.LumbarLoss(do_any_severe_spinal, gamma=gamma)
         self.val_metric = losses.LumbarMetric(do_any_severe_spinal, gamma=gamma)
         self.norm = torch.nn.InstanceNorm2d(1)
         self.backbone = timm.create_model(arch, num_classes=0, in_chans=1, pretrained=pretrained)
