@@ -134,7 +134,6 @@ def process_split(this_split, progress):
                 f"--data.keypoints_path={preds_paths[f'keypoints_{this_split}']}",
                 f"--data.levels_path={preds_paths[f'levels_{this_split}']}",
                 f"--model.ckpt_path={ckpt_paths[f'sequence_{this_split}']}",
-                "--trainer.max_epochs=2",
             ],
             "sequence",
         ),

@@ -1,10 +1,8 @@
+import json
+import shutil
 from collections import defaultdict
 from dataclasses import dataclass
-import json
 from pathlib import Path
-import shutil
-
-import numpy as np
 
 e2e_progress = json.load(open("e2e_progress.json"))
 checkpoints = e2e_progress["ckpt_paths"]
@@ -22,7 +20,7 @@ class Model:
     @property
     def model_name(self):
         return "_".join(self.model_key.split("_")[:-1])
-    
+
     @property
     def main_model(self):
         model_name = self.model_name
@@ -36,28 +34,27 @@ class Model:
             return "sequence"
         elif model_name == "finetune_sequence":
             return "sequence"
-    
+
     @property
     def fold_id(self):
         return int(self.model_key.split("_")[-1])
-    
+
     @property
     def score(self):
         last_part = self.checkpoint.split("=")[-1]
         score = ".".join(last_part.split(".")[:-1])
         return float(score)
-    
+
     @property
     def checkpoint_dir(self):
         return Path(self.checkpoint).parent.parent
-    
+
     @property
     def ckpt_name(self):
         return Path(self.checkpoint).name
-    
+
     def __repr__(self):
         return f"{self.main_model=}, {self.fold_id=}, {self.score=}"
-
 
 
 class ModelScorer:
@@ -70,7 +67,7 @@ class ModelScorer:
         if len(names) != 1:
             raise ValueError("All models must be of the same type")
         return names.pop()
-    
+
     @property
     def best_models(self):
         max_fold = max([model.fold_id for model in self.models])
@@ -84,11 +81,10 @@ class ModelScorer:
     def average_score(self):
         best_models = self.best_models
         return sum([model.score for model in best_models.values()]) / len(best_models)
-    
 
     def __repr__(self):
         return f"{self.name=}, {self.average_score=}"
-    
+
     def to_submission(self, sub_folder):
         best_models = self.best_models
         first_fold = best_models[0].checkpoint_dir
