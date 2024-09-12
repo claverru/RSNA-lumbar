@@ -8,12 +8,6 @@ from typing import Dict, List
 import torch
 import yaml
 
-from src.keypoints.model import LightningModule as Keypoints
-from src.levels.model import LightningModule as Levels
-from src.sequence.model import LightningModule as Sequence
-
-CLS_REGISTRY = {"sequence": Sequence, "keypoints": Keypoints, "levels": Levels}
-
 MODEL2MAINMODEL = {
     "keypoints": "keypoints",
     "levels": "levels",
