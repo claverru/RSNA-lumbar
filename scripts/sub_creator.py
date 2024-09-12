@@ -86,7 +86,6 @@ class ModelScorer:
 
     def copy_to_sub_folder(self, sub_folder: Path):
         best_models = self.best_models
-        # copy all the file from the first fold folder (but not the checkpoints folder nor config)
         directory = sub_folder / self.name
         directory.mkdir(exist_ok=True)
 
