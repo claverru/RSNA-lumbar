@@ -168,5 +168,5 @@ data:
     img_dir: mount/train_images_clip
     n_splits: 5
     this_split: 0
-    batch_size: 16
+    batch_size: 30
     num_workers: 8

@@ -7,6 +7,9 @@ import lightning as L
 import numpy as np
 import pandas as pd
 import torch
+import kornia.augmentation as K
+import kornia.geometry as KG
+from kornia.contrib import Lambda
 from albumentations.pytorch import ToTensorV2
 
 from src import constants, utils
@@ -53,18 +56,39 @@ class Dataset(torch.utils.data.Dataset):
         return X, target
 
 
+# def get_transforms(img_size):
+#     return A.Compose(
+#         [
+#             A.LongestMaxSize(img_size, interpolation=cv2.INTER_CUBIC),
+#             A.PadIfNeeded(img_size, img_size, position="center", border_mode=cv2.BORDER_CONSTANT, value=0),
+#             A.Normalize((0.485,), (0.229,)),
+#             ToTensorV2(),
+#         ]
+#     )
+
+class Apply2DTransformsTo3D(torch.nn.Module):
+    def __init__(self, transforms_2d):
+        super().__init__()
+        self.transforms_2d = transforms_2d
+
+    def forward(self, x):
+        B, T, C, H, W = x.shape
+        x = x.view(B * T, C, H, W)
+        x = self.transforms_2d(x)
+        return x.view(B, T, *x.shape[1:])
+
+
 def get_transforms(img_size):
-    return A.Compose(
-        [
-            A.LongestMaxSize(img_size, interpolation=cv2.INTER_CUBIC),
-            A.PadIfNeeded(img_size, img_size, position="center", border_mode=cv2.BORDER_CONSTANT, value=0),
-            A.Normalize((0.485,), (0.229,)),
-            ToTensorV2(),
-        ]
+    transforms_2d = torch.nn.Sequential(
+        Lambda(lambda x: x.float() / 255.0),
+        K.Resize(size=(img_size, img_size)),
+        K.CenterCrop(size=(img_size, img_size)),
+        K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
     )
+    return Apply2DTransformsTo3D(transforms_2d)
 
 
-def get_aug_transforms(img_size, tta=False):
+# def get_aug_transforms(img_size, tta=False):
     return A.Compose(
         [
             A.LongestMaxSize(img_size, interpolation=cv2.INTER_CUBIC),
@@ -86,6 +110,31 @@ def get_aug_transforms(img_size, tta=False):
             ToTensorV2(),
         ]
     )
+
+
+def get_aug_transforms(img_size, tta=False):
+    transforms_2d = torch.nn.Sequential(
+        Lambda(lambda x: x.float() / 255.0),
+        K.Resize(size=(img_size, img_size)),
+        K.RandomHorizontalFlip(p=0.5),
+        K.RandomAffine(
+            degrees=(-10, 10),
+            translate=(0.0625, 0.0625),
+            scale=(0.8, 1.2),
+            shear=(-10, 10),
+            p=1.0,
+            padding_mode='zeros',
+        ),
+        K.RandomPerspective(
+            distortion_scale=0.2,
+            p=0.5,
+        ),
+        K.PadTo(size=(img_size, img_size)),
+        K.RandomGaussianNoise(mean=0., std=20.**0.5, p=0.2 * (not tta)),
+        K.RandomMotionBlur(kernel_size=(3, 7), angle=(-45., 45.), direction=(-1., 1.), p=0.2 * (not tta)),
+        K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
+    )
+    return Apply2DTransformsTo3D(transforms_2d)
 
 
 def get_angle(x1, y1, x2, y2):

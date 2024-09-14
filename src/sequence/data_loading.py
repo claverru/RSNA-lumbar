@@ -6,10 +6,43 @@ import lightning as L
 import numpy as np
 import pandas as pd
 import torch
-
+import cv2
+from tqdm import tqdm
 from src import constants, utils
 from src.patch.data_loading import get_aug_transforms, get_transforms, load_keypoints
 from src.patch.utils import PLANE2SPACING, Image, Keypoint, Spacing, angle_crop_size
+
+def pad_if_needed(image, img_size, border_mode=cv2.BORDER_CONSTANT, value=0):
+    height, width = image.shape[:2]
+    
+    if height >= img_size and width >= img_size:
+        return image
+
+    pad_height = max(img_size - height, 0)
+    pad_width = max(img_size - width, 0)
+
+    top = np.random.randint(0, pad_height + 1)
+    bottom = pad_height - top
+    left = np.random.randint(0, pad_width + 1)
+    right = pad_width - left
+
+    return cv2.copyMakeBorder(image, top, bottom, left, right, border_mode, value=value)
+
+
+class InMemoryDataset(torch.utils.data.Dataset):
+    def __init__(self, original_dataset, num_workers=12):
+        data_loader = torch.utils.data.DataLoader(original_dataset, batch_size=None, num_workers=num_workers, shuffle=False)
+        
+        self.data = []
+        for batch in tqdm(data_loader, desc="Caching data"):
+            self.data.append(batch)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        batch = self.data[idx]
+        return batch
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -19,13 +52,11 @@ class Dataset(torch.utils.data.Dataset):
         df: pd.DataFrame,
         meta: pd.DataFrame,
         img_size: int,
-        transforms: A.Compose,
     ):
         self.train = train
         self.df = df
         self.meta = meta
         self.index = train.index.unique()
-        self.transforms = transforms
         self.img_size = img_size
         self.study_level_side_index = set(meta.index)
 
@@ -40,7 +71,6 @@ class Dataset(torch.utils.data.Dataset):
     def get_patches(self, study_id, level, side, imgs) -> torch.Tensor:
         if (study_id, level, side) not in self.study_level_side_index:
             img = np.zeros((128, 128), dtype=np.uint8)
-            patches = self.transforms(image=img)["image"][None, ...]
             return patches
 
         chunk = self.df.loc[(study_id, level, side), ["img_path", "series_description", "x", "y", "angle"]]
@@ -51,10 +81,11 @@ class Dataset(torch.utils.data.Dataset):
             patch = angle_crop_size(img, kp, angle, self.img_size, plane)
             if 0 in patch.shape:  # I don't know
                 patch = np.zeros((self.img_size, self.img_size), dtype=np.uint8)
-            patch = self.transforms(image=patch)["image"]
             patches.append(patch)
-
-        patches = torch.stack(patches, 0)
+        
+        patches = [np.expand_dims(pad_if_needed(p, self.img_size), 0) for p in patches]
+        patches = np.stack(patches, 0)
+        patches = torch.from_numpy(patches)
         return patches
 
     def get_meta(self, study_id, level, side):
@@ -245,17 +276,20 @@ class DataModule(L.LightningDataModule):
             train_df, val_df = self.split()
             if self.train_level_side:
                 train_df = utils.train_study2levelside(train_df)
-            self.train_ds = Dataset(train_df, self.df, self.meta, self.img_size, get_aug_transforms(self.img_size))
-            self.val_ds = Dataset(val_df, self.df, self.meta, self.img_size, get_transforms(self.img_size))
+            self.train_ds = Dataset(train_df, self.df, self.meta, self.img_size)
+            self.val_ds = Dataset(val_df, self.df, self.meta, self.img_size)
+
+            # self.train_ds = InMemoryDataset(self.train_ds)
+            # self.val_ds = InMemoryDataset(self.val_ds)
 
         if stage == "test":
             _, val_df = self.split()
-            self.test_ds = Dataset(val_df, self.df, self.meta, self.img_size, get_transforms(self.img_size))
+            self.test_ds = Dataset(val_df, self.df, self.meta, self.img_size)
 
         if stage == "predict":
             fake_train = self.df[[]].droplevel([1, 2])
             transforms = get_aug_transforms(self.img_size, tta=True) if self.tta else get_transforms(self.img_size)
-            self.predict_ds = Dataset(fake_train, self.df, self.meta, self.img_size, transforms)
+            self.predict_ds = Dataset(fake_train, self.df, self.meta, self.img_size)
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
