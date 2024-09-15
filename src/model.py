@@ -1,10 +1,12 @@
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import lightning as L
 import torch
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from torch.optim.lr_scheduler import _LRScheduler
+
+from src import utils
 
 
 def get_proj(in_dim, out_dim, dropout=0, activation=None, norm=None):
@@ -92,3 +94,18 @@ class WarmupLR(_LRScheduler):
             lr * self.warmup_steps**0.5 * min(step_num**-0.5, step_num * self.warmup_steps**-1.5)
             for lr in self.base_lrs
         ]
+
+
+class Ensemble(L.LightningModule):
+    def __init__(self, models: List[L.LightningModule]):
+        super().__init__()
+        self.models = torch.nn.ModuleList(models)
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        results = [m.predict_step(batch, batch_idx, dataloader_idx) for m in self.models]
+        results = utils.cat_tensors(results, f=lambda x: sum(x) / len(x))
+        return results
+
+    # def on_predict_start(self):
+    #     print("Compiling models `on_predict_start`")
+    #     self.models = torch.nn.ModuleList([torch.compile(m) for m in self.models])

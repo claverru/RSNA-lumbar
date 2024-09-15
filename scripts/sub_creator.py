@@ -3,19 +3,24 @@ import shutil
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, List
 
-e2e_progress = json.load(open("e2e_progress.json"))
-checkpoints = e2e_progress["ckpt_paths"]
+import torch
+import yaml
 
-sub_folder = Path("checkpoints")
-shutil.rmtree(str(sub_folder), ignore_errors=True)
-sub_folder.mkdir(exist_ok=True)
+MODEL2MAINMODEL = {
+    "keypoints": "keypoints",
+    "levels": "levels",
+    "patch": "patch",
+    "sequence": "sequence",
+    "finetune_sequence": "sequence",
+}
 
 
 @dataclass
 class Model:
     model_key: str
-    checkpoint: str
+    checkpoint_path: str
 
     @property
     def model_name(self):
@@ -23,17 +28,7 @@ class Model:
 
     @property
     def main_model(self):
-        model_name = self.model_name
-        if model_name == "keypoints":
-            return "keypoints"
-        elif model_name == "levels":
-            return "levels"
-        elif model_name == "patch":
-            return "patch"
-        elif model_name == "sequence":
-            return "sequence"
-        elif model_name == "finetune_sequence":
-            return "sequence"
+        return MODEL2MAINMODEL[self.model_name]
 
     @property
     def fold_id(self):
@@ -41,24 +36,28 @@ class Model:
 
     @property
     def score(self):
-        last_part = self.checkpoint.split("=")[-1]
+        last_part = self.checkpoint_path.split("=")[-1]
         score = ".".join(last_part.split(".")[:-1])
         return float(score)
 
     @property
     def checkpoint_dir(self):
-        return Path(self.checkpoint).parent.parent
+        return Path(self.checkpoint_path).parent.parent
 
     @property
     def ckpt_name(self):
-        return Path(self.checkpoint).name
+        return Path(self.checkpoint_path).name
+
+    @property
+    def config_path(self):
+        return self.checkpoint_dir / "config.yaml"
 
     def __repr__(self):
         return f"{self.main_model=}, {self.fold_id=}, {self.score=}"
 
 
 class ModelScorer:
-    def __init__(self, models):
+    def __init__(self, models: List[Model]):
         self.models = models
         self.name = self.get_name()
 
@@ -69,7 +68,7 @@ class ModelScorer:
         return names.pop()
 
     @property
-    def best_models(self):
+    def best_models(self) -> Dict[str, Model]:
         max_fold = max([model.fold_id for model in self.models])
         best_models = {fold_id: None for fold_id in range(max_fold + 1)}
         for model in self.models:
@@ -85,21 +84,57 @@ class ModelScorer:
     def __repr__(self):
         return f"{self.name=}, {self.average_score=}"
 
-    def to_submission(self, sub_folder):
+    def copy_to_sub_folder(self, sub_folder: Path):
         best_models = self.best_models
-        first_fold = best_models[0].checkpoint_dir
-        # copy all the file from the first fold folder (but not the checkpoints folder)
         directory = sub_folder / self.name
         directory.mkdir(exist_ok=True)
-        for file in first_fold.iterdir():
-            if file.name != "checkpoints":
-                shutil.copy(file, directory / file.name)
 
-        checkpoints_dir = directory / "checkpoints"
-        checkpoints_dir.mkdir(exist_ok=True)
+        # copy config
+        new_config = merge_configs([model.config_path for model in best_models.values()])
+        yaml.dump(new_config, open(directory / "config.yaml", "w"))
+
         # copy the checkpoints
-        for _, model in best_models.items():
-            shutil.copy(model.checkpoint, checkpoints_dir / model.ckpt_name)
+        new_checkpoint = merge_checkpoints([model.checkpoint_path for model in best_models.values()])
+        torch.save(new_checkpoint, directory / f"{self.average_score:.5f}.ckpt")
+
+
+def pop_things(d: dict):
+    if "lr_scheduler" in d:
+        d.pop("lr_scheduler")
+    if "pretrained" in d:
+        d["pretrained"] = False
+    if "ckpt_path" in d:
+        d.pop("ckpt_path")
+
+
+def clean_config(config):
+    pop_things(config["model"]["init_args"])
+    if "backbone" in config["model"]["init_args"]:
+        pop_things(config["model"]["init_args"]["backbone"]["init_args"])
+    config["trainer"]["callbacks"] = None
+    config["trainer"]["logger"] = None
+    return config
+
+
+def merge_configs(config_paths):
+    configs = [yaml.load(open(config_path), Loader=yaml.FullLoader) for config_path in config_paths]
+    configs = [clean_config(config) for config in configs]
+    config = configs[0]
+    config["model"] = {
+        "class_path": "src.model.Ensemble",
+        "init_args": {"models": [config["model"] for config in configs]},
+    }
+    return config
+
+
+def merge_checkpoints(checkpoints_paths):
+    checkpoints = [torch.load(ckpt_path) for ckpt_path in checkpoints_paths]
+    new_checkpoint = {k: v for k, v in checkpoints[0].items() if k != "state_dict"}
+    new_checkpoint["state_dict"] = {}
+    for i, checkpoint in enumerate(checkpoints):
+        for k, state_dict in checkpoint["state_dict"].items():
+            new_checkpoint["state_dict"][f"models.{i}.{k}"] = state_dict
+    return new_checkpoint
 
 
 def create_scorers(models):
@@ -109,11 +144,29 @@ def create_scorers(models):
     return [ModelScorer(models) for models in m.values()]
 
 
-models = [Model(model_key=model, checkpoint=ckpt_path) for model, ckpt_path in checkpoints.items()]
-scorers = create_scorers(models)
-for scorer in scorers:
-    print(scorer)
-    if scorer.name == "patch":
-        print(f"Skipping {scorer.name}")
-        continue
-    scorer.to_submission(sub_folder)
+def clean_and_save_checkpoints(checkpoints: Dict[str, str], sub_folder: Path):
+    checkpoints = {k: v.split("/")[-1] for k, v in checkpoints.items()}
+    yaml.dump(checkpoints, open(sub_folder / "checkpoints.yaml", "w"))
+
+
+def reset_sub_folder():
+    sub_folder = Path("checkpoints")
+    shutil.rmtree(str(sub_folder), ignore_errors=True)
+    sub_folder.mkdir(exist_ok=True)
+    return sub_folder
+
+
+if __name__ == "__main__":
+    checkpoints = json.load(open("e2e_progress.json"))["ckpt_paths"]
+
+    sub_folder = reset_sub_folder()
+    clean_and_save_checkpoints(checkpoints, sub_folder)
+
+    models = [Model(model_key=model, checkpoint_path=checkpoint_path) for model, checkpoint_path in checkpoints.items()]
+    scorers = create_scorers(models)
+    for scorer in scorers:
+        print(scorer)
+        if scorer.name == "patch":
+            print(f"Skipping {scorer.name}")
+            continue
+        scorer.copy_to_sub_folder(sub_folder)
