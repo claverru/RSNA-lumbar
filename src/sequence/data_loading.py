@@ -10,23 +10,7 @@ import cv2
 from tqdm import tqdm
 from src import constants, utils
 from src.patch.data_loading import get_aug_transforms, get_transforms, load_keypoints
-from src.patch.utils import PLANE2SPACING, Image, Keypoint, Spacing, angle_crop_size
-
-def pad_if_needed(image, img_size, border_mode=cv2.BORDER_CONSTANT, value=0):
-    height, width = image.shape[:2]
-    
-    if height >= img_size and width >= img_size:
-        return image
-
-    pad_height = max(img_size - height, 0)
-    pad_width = max(img_size - width, 0)
-
-    top = np.random.randint(0, pad_height + 1)
-    bottom = pad_height - top
-    left = np.random.randint(0, pad_width + 1)
-    right = pad_width - left
-
-    return cv2.copyMakeBorder(image, top, bottom, left, right, border_mode, value=value)
+from src.patch.utils import PLANE2SPACING, Image, Keypoint, Spacing, angle_crop_size, pad_if_needed
 
 
 class InMemoryDataset(torch.utils.data.Dataset):

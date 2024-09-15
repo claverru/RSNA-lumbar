@@ -1,4 +1,5 @@
 from typing import Dict
+from src.patch.data_loading import get_aug_transforms, get_transforms
 
 import timm
 import torch
@@ -15,6 +16,7 @@ class LightningModule(model.LightningModule):
         eval=True,
         do_any_severe_spinal: bool = False,
         gamma: float = 0.0,
+        img_size: int = 96,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -26,6 +28,8 @@ class LightningModule(model.LightningModule):
             self.backbone = self.backbone.eval()
 
         self.heads = torch.nn.ModuleDict({k: model.get_proj(None, 3, linear_dropout) for k in constants.CONDITIONS})
+        self.train_tf = get_aug_transforms(img_size, is_3d=False)
+        self.val_tf = get_transforms(img_size, is_3d=False)
 
         self.maybe_restore_checkpoint()
 
@@ -41,6 +45,7 @@ class LightningModule(model.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
+        x = self.train_tf(x)
         pred = self.forward_train(x)
         loss, _ = self.train_loss(y, pred)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True)
@@ -48,6 +53,7 @@ class LightningModule(model.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
+        x = self.val_tf(x)
         pred = self.forward_train(x)
         self.val_metric.update(y, pred)
 
