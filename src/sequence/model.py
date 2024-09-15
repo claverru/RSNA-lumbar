@@ -79,6 +79,7 @@ class LightningModule(model.LightningModule):
         random_weights: bool = False,
         any_severe_spinal_t: float = 0,
         ordinal: bool = False,
+        img_size: int = 96,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -137,26 +138,23 @@ class LightningModule(model.LightningModule):
         self.heads = torch.nn.ModuleDict({k: model.get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
         self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
 
-        self.train_tf = get_aug_transforms(96, tta=False)
-        self.val_tf = get_transforms(96)
+        self.train_tf = get_aug_transforms(img_size, tta=False)
+        self.tta_tf = get_aug_transforms(img_size, tta=True)
+        self.val_tf = get_transforms(img_size)
 
         self.maybe_restore_checkpoint()
 
-    def extract_features(self, x: torch.Tensor, mask: torch.Tensor, is_train: bool = True) -> torch.Tensor:
+    def extract_features(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         true_mask = mask.logical_not()
         B, T, C, H, W = x.shape
-        # if is_train:
-        #     x = self.train_tf(x)
-        # else:
-        #     x = self.val_tf(x)
         filter_x = x[true_mask]
         filter_feats: torch.Tensor = self.backbone(filter_x)
         feats = torch.zeros((B, T, filter_feats.shape[-1]), device=filter_feats.device, dtype=filter_feats.dtype)
         feats[true_mask] = filter_feats
         return feats
 
-    def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor, is_train: bool = True) -> Dict[str, torch.Tensor]:
-        feats = self.extract_features(x, mask, is_train)
+    def forward_one(self, x: torch.Tensor, meta: torch.Tensor, mask: torch.Tensor) -> Dict[str, torch.Tensor]:
+        feats = self.extract_features(x, mask)
         feats = self.proj(feats)
 
         meta = self.meta_proj(meta)
@@ -177,14 +175,14 @@ class LightningModule(model.LightningModule):
         return out
 
     def forward(
-        self, x: Dict[str, torch.Tensor], meta: Dict[str, torch.Tensor], mask: Dict[str, torch.Tensor], is_train: bool = True
+        self, x: Dict[str, torch.Tensor], meta: Dict[str, torch.Tensor], mask: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         levels = list(x)
         sides = list(x[levels[0]])
         feats = []
         for level in levels:
             for side in sides:
-                feats.append(self.forward_one(x[level][side], meta[level][side], mask[level][side], is_train))
+                feats.append(self.forward_one(x[level][side], meta[level][side], mask[level][side]))
 
         feats = torch.concatenate(feats, 1)
         if self.mid_attention is not None:
@@ -231,7 +229,7 @@ class LightningModule(model.LightningModule):
     def training_step(self, batch, batch_idx):
         *x, y = batch
         x[0] = self.apply_transforms(x[0], self.train_tf)
-        pred = self.forward(*x, is_train=True)
+        pred = self.forward(*x)
         loss, _ = self.train_loss(y, pred)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True)
         return loss
@@ -239,7 +237,7 @@ class LightningModule(model.LightningModule):
     def validation_step(self, batch, batch_idx):
         *x, y = batch
         x[0] = self.apply_transforms(x[0], self.val_tf)
-        pred = self.forward(*x, is_train=False)
+        pred = self.forward(*x)
         self.val_metric.update(y, pred)
 
     def test_step(self, batch, batch_idx):
@@ -260,5 +258,5 @@ class LightningModule(model.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x = batch
-        pred = self.forward(*x, is_train=False)
+        pred = self.forward(*x)
         return pred
