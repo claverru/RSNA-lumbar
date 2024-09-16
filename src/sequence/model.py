@@ -1,3 +1,4 @@
+from collections import defaultdict
 import math
 from typing import Dict, List, Literal
 from src.patch.data_loading import get_aug_transforms, get_transforms
@@ -80,6 +81,7 @@ class LightningModule(model.LightningModule):
         any_severe_spinal_t: float = 0,
         ordinal: bool = False,
         img_size: int = 96,
+        tta_count: int = 1,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -138,6 +140,7 @@ class LightningModule(model.LightningModule):
         self.heads = torch.nn.ModuleDict({k: model.get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
         self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
 
+        self.tta_count = tta_count
         self.train_tf = get_aug_transforms(img_size, tta=False)
         self.tta_tf = get_aug_transforms(img_size, tta=True)
         self.val_tf = get_transforms(img_size)
@@ -257,6 +260,12 @@ class LightningModule(model.LightningModule):
         self.do_metric_on_epoch_end("test")
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        x = batch
-        pred = self.forward(*x)
-        return pred
+        images, meta, mask = batch
+        running_outs = defaultdict(list)
+        for _ in range(self.tta_count):
+            aug_image = self.apply_transforms(images, self.tta_tf)
+            pred = self.forward(aug_image, meta, mask)
+            for k, v in pred.items():
+                running_outs[k].append(v)
+        preds = {k: torch.stack(v).mean(0) for k, v in running_outs.items()}
+        return preds
