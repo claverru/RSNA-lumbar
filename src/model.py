@@ -97,7 +97,7 @@ class WarmupLR(_LRScheduler):
 
 
 class Ensemble(L.LightningModule):
-    def __init__(self, models: List[L.LightningModule], tta_count: int):
+    def __init__(self, models: List[L.LightningModule], tta_count: int = 1):
         super().__init__()
         # only relevant for sequence ensemble
         for i in range(len(models)):
