@@ -7,21 +7,19 @@ import lightning as L
 import numpy as np
 import pandas as pd
 import torch
-import kornia.augmentation as K
-import kornia.geometry as KG
-from kornia.contrib import Lambda
 from albumentations.pytorch import ToTensorV2
 
 from src import constants, utils
-from src.patch.utils import PLANE2SPACING, Image, Keypoint, Spacing, angle_crop_size, pad_if_needed
+from src.patch.utils import PLANE2SPACING, Image, Keypoint, Spacing, angle_crop_size
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, train: pd.DataFrame, df: pd.DataFrame, img_dir: Path, img_size: int):
+    def __init__(self, train: pd.DataFrame, df: pd.DataFrame, img_dir: Path, img_size: int, transforms: A.Compose):
         self.train = train
         self.df = df
         self.img_dir = img_dir
         self.index = self.train.index if train is not None else df.index
+        self.transforms = transforms
         self.img_size = img_size
 
     def __len__(self):
@@ -46,8 +44,7 @@ class Dataset(torch.utils.data.Dataset):
         target_spacing = Spacing(PLANE2SPACING[plane], PLANE2SPACING[plane])
         img = img.resize_spacing(target_spacing)
         patch = angle_crop_size(img, kp, angle, self.img_size, plane)
-        patch = pad_if_needed(patch, self.img_size)
-        X = torch.tensor(patch).unsqueeze(0)
+        X = self.transforms(image=patch)["image"]
         target = self.get_target(idx)
 
         if target is None:
@@ -56,56 +53,14 @@ class Dataset(torch.utils.data.Dataset):
         return X, target
 
 
-
-class Apply2DTransformsTo3D(torch.nn.Module):
-    def __init__(self, transforms_2d):
-        super().__init__()
-        self.transforms_2d = transforms_2d
-
-    def forward(self, x):
-        B, T, C, H, W = x.shape
-        x = x.view(B * T, C, H, W)
-        x = self.transforms_2d(x)
-        return x.view(B, T, *x.shape[1:])
-
-
-def get_transforms(img_size, is_3d=True):
-    transforms_2d = torch.nn.Sequential(
-        Lambda(lambda x: x.float() / 255.0),
-        K.Resize(size=(img_size, img_size)),
-        K.CenterCrop(size=(img_size, img_size)),
-        K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
+def get_transforms(img_size):
+    return A.Compose(
+        [
+            A.LongestMaxSize(img_size, interpolation=cv2.INTER_CUBIC),
+            A.PadIfNeeded(img_size, img_size, position="center", border_mode=cv2.BORDER_CONSTANT, value=0),
+            ToTensorV2(),
+        ]
     )
-    if is_3d:   
-        return Apply2DTransformsTo3D(transforms_2d)
-    return transforms_2d
-
-
-def get_aug_transforms(img_size, is_3d=True, tta=False):
-    transforms_2d = torch.nn.Sequential(
-        Lambda(lambda x: x.float() / 255.0),
-        K.Resize(size=(img_size, img_size)),
-        K.RandomHorizontalFlip(p=0.5),
-        K.RandomAffine(
-            degrees=(-10, 10),
-            translate=(0.0625, 0.0625),
-            scale=(0.8, 1.2),
-            shear=(-10, 10),
-            p=1.0,
-            padding_mode='zeros',
-        ),
-        K.RandomPerspective(
-            distortion_scale=0.2,
-            p=0.5,
-        ),
-        K.PadTo(size=(img_size, img_size)),
-        K.RandomGaussianNoise(mean=0., std=20.**0.5, p=0.2 * (not tta)),
-        K.RandomMotionBlur(kernel_size=(3, 7), angle=(-45., 45.), direction=(-1., 1.), p=0.2 * (not tta)),
-        K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
-    )
-    if is_3d:
-        return Apply2DTransformsTo3D(transforms_2d)
-    return transforms_2d
 
 
 def get_angle(x1, y1, x2, y2):
@@ -273,15 +228,15 @@ class DataModule(L.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             train_df, val_df = self.split()
-            self.train_ds = Dataset(train_df, self.df, self.img_dir, self.img_size)
-            self.val_ds = Dataset(val_df, self.df, self.img_dir, self.img_size)
+            self.train_ds = Dataset(train_df, self.df, self.img_dir, self.img_size, get_transforms(self.img_size))
+            self.val_ds = Dataset(val_df, self.df, self.img_dir, self.img_size, get_transforms(self.img_size))
 
         if stage == "test":
             pass
 
         if stage == "predict":
             df = load_keypoints(self.keypoints_path).set_index(constants.BASIC_COLS + ["type"])
-            self.predict_ds = Dataset(None, df, self.img_dir, self.img_size)
+            self.predict_ds = Dataset(None, df, self.img_dir, self.img_size, get_transforms(self.img_size))
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(

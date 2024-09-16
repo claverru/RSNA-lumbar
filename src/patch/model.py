@@ -1,10 +1,62 @@
 from typing import Dict
-from src.patch.data_loading import get_aug_transforms, get_transforms
 
+import kornia.augmentation as K
 import timm
 import torch
+from kornia.contrib import Lambda
 
 from src import constants, losses, model
+
+
+class Apply2DTransformsTo3D(torch.nn.Module):
+    def __init__(self, transforms_2d):
+        super().__init__()
+        self.transforms_2d = transforms_2d
+
+    def forward(self, x):
+        B, T, C, H, W = x.shape
+        x = x.view(B * T, C, H, W)
+        x = self.transforms_2d(x)
+        return x.view(B, T, *x.shape[1:])
+
+
+def get_transforms(img_size, is_3d=True):
+    transforms_2d = torch.nn.Sequential(
+        Lambda(lambda x: x.float() / 255.0),
+        K.Resize(size=(img_size, img_size)),
+        K.CenterCrop(size=(img_size, img_size)),
+        K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
+    )
+    if is_3d:
+        return Apply2DTransformsTo3D(transforms_2d)
+    return transforms_2d
+
+
+def get_aug_transforms(img_size, is_3d=True, tta=False):
+    transforms_2d = torch.nn.Sequential(
+        Lambda(lambda x: x.float() / 255.0),
+        K.Resize(size=(img_size, img_size)),
+        K.RandomHorizontalFlip(p=0.5),
+        K.RandomAffine(
+            degrees=(-10, 10),
+            translate=(0.0625, 0.0625),
+            scale=(0.8, 1.2),
+            shear=(-10, 10),
+            p=1.0,
+            padding_mode="zeros",
+        ),
+        K.RandomPerspective(
+            distortion_scale=0.2,
+            p=0.5,
+        ),
+        K.PadTo(size=(img_size, img_size)),
+        K.RandomGaussianNoise(mean=0.0, std=20.0**0.5, p=0.2 * (not tta)),
+        K.RandomMotionBlur(kernel_size=(3, 7), angle=(-45.0, 45.0), direction=(-1.0, 1.0), p=0.2 * (not tta)),
+        K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
+    )
+    if is_3d:
+        return Apply2DTransformsTo3D(transforms_2d)
+    return transforms_2d
 
 
 class LightningModule(model.LightningModule):

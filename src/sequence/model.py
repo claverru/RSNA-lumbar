@@ -1,12 +1,12 @@
-from collections import defaultdict
 import math
+from collections import defaultdict
 from typing import Dict, List, Literal
-from src.patch.data_loading import get_aug_transforms, get_transforms
 
 import torch
 
 from src import constants, losses, model
 from src.patch import model as patch_model
+from src.patch.model import get_aug_transforms, get_transforms
 from src.sequence.data_loading import META_COLS
 
 
@@ -220,7 +220,7 @@ class LightningModule(model.LightningModule):
 
     def i(self, lvl, s, c):
         return lvl * len(self.conditions) * 2 + s * len(self.conditions) + c
-    
+
     def apply_transforms(self, x, tf):
         levels = list(x)
         sides = list(x[levels[0]])
@@ -228,7 +228,7 @@ class LightningModule(model.LightningModule):
             for side in sides:
                 x[level][side] = tf(x[level][side])
         return x
-    
+
     def training_step(self, batch, batch_idx):
         *x, y = batch
         x[0] = self.apply_transforms(x[0], self.train_tf)
