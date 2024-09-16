@@ -20,11 +20,9 @@ class Apply2DTransformsTo3D(torch.nn.Module):
         return x.view(B, T, *x.shape[1:])
 
 
-def get_transforms(img_size, is_3d=True):
+def get_transforms(is_3d=True):
     transforms_2d = torch.nn.Sequential(
         Lambda(lambda x: x.float() / 255.0),
-        K.Resize(size=(img_size, img_size)),
-        K.CenterCrop(size=(img_size, img_size)),
         K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
     )
     if is_3d:
@@ -32,10 +30,9 @@ def get_transforms(img_size, is_3d=True):
     return transforms_2d
 
 
-def get_aug_transforms(img_size, is_3d=True, tta=False):
+def get_aug_transforms(is_3d=True, tta=False):
     transforms_2d = torch.nn.Sequential(
         Lambda(lambda x: x.float() / 255.0),
-        K.Resize(size=(img_size, img_size)),
         K.RandomHorizontalFlip(p=0.5),
         K.RandomAffine(
             degrees=(-10, 10),
@@ -49,7 +46,6 @@ def get_aug_transforms(img_size, is_3d=True, tta=False):
             distortion_scale=0.2,
             p=0.5,
         ),
-        K.PadTo(size=(img_size, img_size)),
         K.RandomGaussianNoise(mean=0.0, std=20.0**0.5, p=0.2 * (not tta)),
         K.RandomMotionBlur(kernel_size=(3, 7), angle=(-45.0, 45.0), direction=(-1.0, 1.0), p=0.2 * (not tta)),
         K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
@@ -68,7 +64,6 @@ class LightningModule(model.LightningModule):
         eval=True,
         do_any_severe_spinal: bool = False,
         gamma: float = 0.0,
-        img_size: int = 96,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -80,8 +75,8 @@ class LightningModule(model.LightningModule):
             self.backbone = self.backbone.eval()
 
         self.heads = torch.nn.ModuleDict({k: model.get_proj(None, 3, linear_dropout) for k in constants.CONDITIONS})
-        self.train_tf = get_aug_transforms(img_size, is_3d=False)
-        self.val_tf = get_transforms(img_size, is_3d=False)
+        self.train_tf = get_aug_transforms(is_3d=False)
+        self.val_tf = get_transforms(is_3d=False)
 
         self.maybe_restore_checkpoint()
 

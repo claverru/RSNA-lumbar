@@ -80,7 +80,6 @@ class LightningModule(model.LightningModule):
         random_weights: bool = False,
         any_severe_spinal_t: float = 0,
         ordinal: bool = False,
-        img_size: int = 96,
         tta_count: int = 1,
         **kwargs,
     ):
@@ -141,9 +140,9 @@ class LightningModule(model.LightningModule):
         self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
 
         self.tta_count = tta_count
-        self.train_tf = get_aug_transforms(img_size, tta=False)
-        self.tta_tf = get_aug_transforms(img_size, tta=True)
-        self.val_tf = get_transforms(img_size)
+        self.train_tf = get_aug_transforms(tta=False)
+        self.tta_tf = get_aug_transforms(tta=True)
+        self.val_tf = get_transforms()
 
         self.maybe_restore_checkpoint()
 
