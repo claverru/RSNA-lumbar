@@ -9,3 +9,4 @@ pyarrow==16.1.0
 scikit-learn==1.5.1
 pytorch-metric-learning==2.6.0
 ipykernel==6.29.5
+kornia==0.7.3

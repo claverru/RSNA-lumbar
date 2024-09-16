@@ -1,6 +1,7 @@
 FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
 
 ENV DEBIAN_FRONTEND="noninteractive"
+ENV NO_ALBUMENTATIONS_UPDATE=1
 
 RUN apt-get update && apt-get install build-essential git zip ffmpeg libsm6 libxext6 -y
 
