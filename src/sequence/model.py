@@ -1,10 +1,9 @@
 import math
-from collections import defaultdict
 from typing import Dict, List, Literal
 
 import torch
 
-from src import constants, losses, model
+from src import constants, losses, model, utils
 from src.patch import model as patch_model
 from src.patch.model import get_aug_transforms, get_transforms
 from src.sequence.data_loading import META_COLS
@@ -260,12 +259,11 @@ class LightningModule(model.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         images, meta, mask = batch
-        running_outs = defaultdict(list)
         tf = self.tta_tf if self.tta_count > 1 else self.val_tf
+        preds = []
         for _ in range(self.tta_count):
             aug_image = self.apply_transforms(images, tf)
             pred = self.forward(aug_image, meta, mask)
-            for k, v in pred.items():
-                running_outs[k].append(v)
-        preds = {k: torch.stack(v).mean(0) for k, v in running_outs.items()}
+            preds.append(pred)
+        preds = utils.cat_tensors(preds, f=lambda x: sum(x) / len(x))
         return preds
