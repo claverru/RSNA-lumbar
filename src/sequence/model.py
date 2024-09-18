@@ -222,10 +222,11 @@ class LightningModule(model.LightningModule):
     def apply_transforms(self, x, tf):
         levels = list(x)
         sides = list(x[levels[0]])
+        x_transformed = {level: {side: x[level][side].clone() for side in sides} for level in levels}  # create a copy
         for level in levels:
             for side in sides:
-                x[level][side] = tf(x[level][side])
-        return x
+                x_transformed[level][side] = tf(x_transformed[level][side])
+        return x_transformed
 
     def training_step(self, batch, batch_idx):
         *x, y = batch
