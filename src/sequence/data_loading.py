@@ -216,7 +216,6 @@ class DataModule(L.LightningDataModule):
         meta_path: Path = constants.META_PATH,
         img_size: int = 224,
         img_dir: Path = constants.TRAIN_IMG_DIR,
-        tta: bool = False,
         n_splits: int = 5,
         this_split: int = 0,
         batch_size: int = 64,
@@ -235,7 +234,6 @@ class DataModule(L.LightningDataModule):
         self.train = utils.load_train(train_path)
         self.train_path = train_path
         self.train_level_side = train_level_side
-        self.tta = tta
 
     def split(self) -> Tuple[List[int], List[int]]:
         return utils.split(self.train, self.n_splits, self.this_split)
@@ -254,7 +252,7 @@ class DataModule(L.LightningDataModule):
 
         if stage == "predict":
             fake_train = self.df[[]].droplevel([1, 2])
-            transforms = get_transforms(self.img_size, tta=True) if self.tta else get_transforms(self.img_size)
+            transforms = get_transforms(self.img_size)
             self.predict_ds = Dataset(fake_train, self.df, self.meta, self.img_size, transforms)
 
     def train_dataloader(self):
