@@ -6,17 +6,26 @@ import tyro
 import yaml
 
 from src import utils
-from src.patch import data_loading
+from src.patch import data_loading, model
+
+MODE2TRANSFORMS = {
+    "train": model.get_aug_transforms(is_3d=False, tta=False),
+    "tta": model.get_aug_transforms(is_3d=False, tta=True),
+    "val": model.get_transforms(is_3d=False),
+}
 
 
-def main(mode: Literal["train", "val"] = "val"):
+def main(mode: Literal["train", "val", "tta"] = "val"):
     config = yaml.load(open("configs/patch.yaml"), Loader=yaml.FullLoader)
     config["data"]["init_args"]["num_workers"] = 0
     dm = data_loading.DataModule(**config["data"]["init_args"])
     dm.setup("fit")
     dl = dm.train_dataloader() if mode == "train" else dm.val_dataloader()
+    transforms = MODE2TRANSFORMS[mode]
+
     for X, y in dl:
         patches = []
+        X = transforms(X)
         for x in X:
             utils.print_tensor(y)
             img = x[0].numpy()
