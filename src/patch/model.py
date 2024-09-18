@@ -46,7 +46,7 @@ def get_aug_transforms(is_3d=True, tta=False):
             distortion_scale=0.2,
             p=0.5,
         ),
-        K.RandomGaussianNoise(mean=0.0, std=20.0**0.5, p=0.2 * (not tta)),
+        K.RandomGaussianNoise(mean=0.0, std=0.1, p=0.2 * (not tta)),
         K.RandomMotionBlur(kernel_size=(3, 7), angle=(-45.0, 45.0), direction=(-1.0, 1.0), p=0.2 * (not tta)),
         K.Normalize(mean=torch.tensor([0.485]), std=torch.tensor([0.229])),
     )
