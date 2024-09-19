@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import scipy
-import sklearn
+from sklearn import metrics
 
 from src import constants
 
@@ -89,7 +89,7 @@ def score(
     condition_weights = []
     for condition in ["spinal", "foraminal", "subarticular"]:
         condition_indices = solution.loc[solution["condition"] == condition].index.values
-        condition_loss = sklearn.metrics.log_loss(
+        condition_loss = metrics.log_loss(
             y_true=solution.loc[condition_indices, target_levels].values,
             y_pred=submission.loc[condition_indices, target_levels].values,
             sample_weight=solution.loc[condition_indices, "sample_weight"].values,
@@ -106,7 +106,7 @@ def score(
     any_severe_spinal_predictions = pd.Series(
         submission.loc[submission["condition"] == "spinal"].groupby("study_id")["severe"].max()
     )
-    any_severe_spinal_loss = sklearn.metrics.log_loss(
+    any_severe_spinal_loss = metrics.log_loss(
         y_true=any_severe_spinal_labels, y_pred=any_severe_spinal_predictions, sample_weight=any_severe_spinal_weights
     )
     condition_losses["any_severe_spinal"] = any_severe_spinal_loss
