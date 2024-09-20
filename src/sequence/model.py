@@ -103,7 +103,7 @@ class LightningModule(model.LightningModule):
             norm=torch.nn.LayerNorm(len(META_COLS)) if norm_meta else None,
         )
         self.proj = model.get_proj(
-            self.backbone.backbone.num_features,
+            None,
             emb_dim,
             feats_dropout,
             norm=torch.nn.LayerNorm(self.backbone.backbone.num_features) if norm_feats else None,
