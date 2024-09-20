@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import pydicom
 import torch
-from sklearn.model_selection import StratifiedGroupKFold
 
 from src import constants
 
@@ -132,13 +131,6 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
     # strats = train.astype(str).sum(1)
     # groups = train.reset_index()["study_id"]
 
-    # # strats_df = pd.read_csv("data/oof_loss.csv")
-    # # strats_df = strats_df.groupby(["study_id", "condition"], as_index=False)["loss"].sum()
-    # # strats_df = strats_df.pivot(index="study_id", columns="condition", values="loss")
-    # # strats_df = strats_df > strats_df.quantile(0.85)
-    # # strats = strats_df.astype(str).sum(1)
-    # # groups = strats.reset_index()["study_id"]
-
     # skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=128)
     # for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
     #     if i == this_split:
@@ -149,7 +141,6 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
     # train_study_ids = sorted(train_study_ids.intersection(df.reset_index()["study_id"]))
     # val_study_ids = sorted(val_study_ids.intersection(df.reset_index()["study_id"]))
 
-
     splits = pd.read_csv("data/splits10.csv")
     val_splits = this_split * 2, this_split * 2 + 1
 
@@ -158,7 +149,6 @@ def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFram
 
     train_study_ids = sorted(train_study_ids.intersection(df.reset_index()["study_id"]))
     val_study_ids = sorted(val_study_ids.intersection(df.reset_index()["study_id"]))
-
 
     train_df = df.loc[train_study_ids]
     val_df = df.loc[val_study_ids]
