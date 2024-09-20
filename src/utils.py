@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import pydicom
 import torch
-from sklearn.model_selection import StratifiedGroupKFold
 
 from src import constants
 
@@ -126,25 +125,27 @@ def load_coor(coor_path: Path = constants.COOR_PATH):
 def split(df: pd.DataFrame, n_splits: int, this_split: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
     assert df.index.names[0] == "study_id"
 
-    train = load_train(constants.TRAIN_PATH, fillna=0)
-    train = train_study2levelside(train)
-    train["any_severe_spinal"] = train.groupby(level=0)["spinal_canal_stenosis"].transform("max")
-    strats = train.astype(str).sum(1)
-    groups = train.reset_index()["study_id"]
+    # train = load_train(constants.TRAIN_PATH, fillna=0)
+    # train = train_study2levelside(train)
+    # train["any_severe_spinal"] = train.groupby(level=0)["spinal_canal_stenosis"].transform("max")
+    # strats = train.astype(str).sum(1)
+    # groups = train.reset_index()["study_id"]
 
-    # strats_df = pd.read_csv("data/oof_loss.csv")
-    # strats_df = strats_df.groupby(["study_id", "condition"], as_index=False)["loss"].sum()
-    # strats_df = strats_df.pivot(index="study_id", columns="condition", values="loss")
-    # strats_df = strats_df > strats_df.quantile(0.85)
-    # strats = strats_df.astype(str).sum(1)
-    # groups = strats.reset_index()["study_id"]
+    # skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=128)
+    # for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
+    #     if i == this_split:
+    #         break
 
-    skf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=128)
-    for i, (train_ids, val_ids) in enumerate(skf.split(strats, strats, groups)):
-        if i == this_split:
-            break
+    # train_study_ids, val_study_ids = set(groups[train_ids]), set(groups[val_ids])
 
-    train_study_ids, val_study_ids = set(groups[train_ids]), set(groups[val_ids])
+    # train_study_ids = sorted(train_study_ids.intersection(df.reset_index()["study_id"]))
+    # val_study_ids = sorted(val_study_ids.intersection(df.reset_index()["study_id"]))
+
+    splits = pd.read_csv("data/splits10.csv")
+    val_splits = this_split * 2, this_split * 2 + 1
+
+    val_study_ids = set(splits.loc[splits["split"].isin(val_splits), "study_id"])
+    train_study_ids = set(splits.loc[~splits["split"].isin(val_splits), "study_id"])
 
     train_study_ids = sorted(train_study_ids.intersection(df.reset_index()["study_id"]))
     val_study_ids = sorted(val_study_ids.intersection(df.reset_index()["study_id"]))

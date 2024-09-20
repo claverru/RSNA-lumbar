@@ -1,5 +1,5 @@
 # lightning.pytorch==2.2.5
-seed_everything: 128
+seed_everything: 821
 trainer:
   max_epochs: 4
   callbacks:

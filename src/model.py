@@ -97,8 +97,11 @@ class WarmupLR(_LRScheduler):
 
 
 class Ensemble(L.LightningModule):
-    def __init__(self, models: List[L.LightningModule]):
+    def __init__(self, models: List[L.LightningModule], tta_count: int = 1):
         super().__init__()
+        # only relevant for sequence ensemble
+        for i in range(len(models)):
+            models[i].tta_count = tta_count
         self.models = torch.nn.ModuleList(models)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):

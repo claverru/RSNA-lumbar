@@ -58,31 +58,6 @@ def get_transforms(img_size):
         [
             A.LongestMaxSize(img_size, interpolation=cv2.INTER_CUBIC),
             A.PadIfNeeded(img_size, img_size, position="center", border_mode=cv2.BORDER_CONSTANT, value=0),
-            A.Normalize((0.485,), (0.229,)),
-            ToTensorV2(),
-        ]
-    )
-
-
-def get_aug_transforms(img_size, tta=False):
-    return A.Compose(
-        [
-            A.LongestMaxSize(img_size, interpolation=cv2.INTER_CUBIC),
-            A.HorizontalFlip(p=0.5),
-            A.Affine(
-                rotate=(-10, 10),
-                shear=(-10, 10),
-                translate_percent=0.0625,
-                scale=(0.8, 1.2),
-                p=1.0,
-                interpolation=cv2.INTER_CUBIC,
-                mode=cv2.BORDER_CONSTANT,
-            ),
-            A.Perspective(0.2, p=0.5, interpolation=cv2.INTER_CUBIC, pad_mode=cv2.BORDER_CONSTANT, pad_val=0),
-            A.PadIfNeeded(img_size, img_size, position="random", border_mode=cv2.BORDER_CONSTANT, value=0),
-            A.GaussNoise(var_limit=20, noise_scale_factor=0.90, mean=0, p=0.2 * (not tta)),
-            A.MotionBlur(blur_limit=(3, 7), p=0.2 * (not tta)),
-            A.Normalize((0.485,), (0.229,)),
             ToTensorV2(),
         ]
     )
@@ -253,7 +228,7 @@ class DataModule(L.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             train_df, val_df = self.split()
-            self.train_ds = Dataset(train_df, self.df, self.img_dir, self.img_size, get_aug_transforms(self.img_size))
+            self.train_ds = Dataset(train_df, self.df, self.img_dir, self.img_size, get_transforms(self.img_size))
             self.val_ds = Dataset(val_df, self.df, self.img_dir, self.img_size, get_transforms(self.img_size))
 
         if stage == "test":

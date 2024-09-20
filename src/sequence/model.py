@@ -3,8 +3,9 @@ from typing import Dict, List, Literal
 
 import torch
 
-from src import constants, losses, model
+from src import constants, losses, model, utils
 from src.patch import model as patch_model
+from src.patch.model import get_aug_transforms, get_transforms
 from src.sequence.data_loading import META_COLS
 
 
@@ -78,6 +79,7 @@ class LightningModule(model.LightningModule):
         random_weights: bool = False,
         any_severe_spinal_t: float = 0,
         ordinal: bool = False,
+        tta_count: int = 1,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -135,6 +137,12 @@ class LightningModule(model.LightningModule):
 
         self.heads = torch.nn.ModuleDict({k: model.get_proj(emb_dim, 3, out_dropout) for k in self.conditions})
         self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
+
+        self.tta_count = tta_count
+        self.train_tf = get_aug_transforms(tta=False)
+        self.tta_tf = get_aug_transforms(tta=True)
+        self.val_tf = get_transforms()
+
         self.maybe_restore_checkpoint()
 
     def extract_features(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -211,8 +219,18 @@ class LightningModule(model.LightningModule):
     def i(self, lvl, s, c):
         return lvl * len(self.conditions) * 2 + s * len(self.conditions) + c
 
+    def apply_transforms(self, x, tf):
+        levels = list(x)
+        sides = list(x[levels[0]])
+        x_transformed = {level: {side: x[level][side].clone() for side in sides} for level in levels}  # create a copy
+        for level in levels:
+            for side in sides:
+                x_transformed[level][side] = tf(x_transformed[level][side])
+        return x_transformed
+
     def training_step(self, batch, batch_idx):
         *x, y = batch
+        x[0] = self.apply_transforms(x[0], self.train_tf)
         pred = self.forward(*x)
         loss, _ = self.train_loss(y, pred)
         self.log("train_loss", loss, on_epoch=True, prog_bar=True, on_step=True)
@@ -220,6 +238,7 @@ class LightningModule(model.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         *x, y = batch
+        x[0] = self.apply_transforms(x[0], self.val_tf)
         pred = self.forward(*x)
         self.val_metric.update(y, pred)
 
@@ -240,6 +259,12 @@ class LightningModule(model.LightningModule):
         self.do_metric_on_epoch_end("test")
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        x = batch
-        pred = self.forward(*x)
-        return pred
+        images, meta, mask = batch
+        tf = self.tta_tf if self.tta_count > 1 else self.val_tf
+        preds = []
+        for _ in range(self.tta_count):
+            aug_image = self.apply_transforms(images, tf)
+            pred = self.forward(aug_image, meta, mask)
+            preds.append(pred)
+        preds = utils.cat_tensors(preds, f=lambda x: sum(x) / len(x))
+        return preds
