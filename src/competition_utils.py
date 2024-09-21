@@ -19,11 +19,11 @@ def train2solution(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def softmax(df):
-    return scipy.special.softmax(df.values, -1)
+def softmax(df, temperature=1.0):
+    return scipy.special.softmax(df.values / temperature, -1)
 
 
-def studypreds2submission(df: pd.DataFrame) -> pd.DataFrame:
+def studypreds2submission(df: pd.DataFrame, temperature: float = 1.0) -> pd.DataFrame:
     df = df.melt(id_vars="study_id")
     df[["condition_level", "severity"]] = df.pop("variable").str.rsplit("_", n=1, expand=True)
     df = df.pivot_table(index=["study_id", "condition_level"], columns=["severity"], values="value").reset_index()
