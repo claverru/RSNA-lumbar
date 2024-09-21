@@ -187,7 +187,6 @@ data:
     meta_path: data/metadata.csv
     img_size: 96
     img_dir: mount/train_images_clip
-    tta: false
     n_splits: 5
     this_split: 0
     batch_size: 32
