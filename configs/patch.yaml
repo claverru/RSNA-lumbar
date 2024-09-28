@@ -20,7 +20,7 @@ trainer:
     init_args:
       monitor: val_loss
       min_delta: 0.0
-      patience: 3
+      patience: 17
       verbose: false
       mode: min
       strict: true
@@ -56,12 +56,12 @@ trainer:
       preds_name: preds.parquet
   - class_path: src.callbacks.CustomBackboneFinetuning
     init_args:
-      unfreeze_at_epoch: 0
+      unfreeze_at_epoch: 2
       unfreeze_bn: true
       backbone_names:
       - backbone
   fast_dev_run: false
-  max_epochs: 12
+  max_epochs: 100
   min_epochs: null
   max_steps: -1
   min_steps: null
@@ -105,26 +105,17 @@ model:
     do_any_severe_spinal: false
     gamma: 0.0
     optimizer:
-      class_path: src.ranger.Ranger
+      class_path: torch.optim.SGD
       init_args:
-        lr: 0.001
-        alpha: 0.5
-        k: 6
-        N_sma_threshhold: 5
-        betas:
-        - 0.95
-        - 0.999
-        eps: 1.0e-05
-        weight_decay: 0.02
-        use_gc: true
-        gc_conv_only: false
-        gc_loc: true
+        lr: 0.004
+        momentum: 0.9
+        weight_decay: 0.0001
     lr_scheduler:
-      class_path: src.model.WarmupLR
+      class_path: torch.optim.lr_scheduler.StepLR
       init_args:
-        warmup_steps: 305
-        last_epoch: -1
-    interval: step
+        step_size: 15
+        gamma: 0.5
+    interval: epoch
     frequency: 1
     ckpt_path: null
 data:

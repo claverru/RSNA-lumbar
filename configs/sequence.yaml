@@ -61,7 +61,7 @@ trainer:
       backbone_names:
       - backbone
   fast_dev_run: false
-  max_epochs: 15
+  max_epochs: 25
   min_epochs: null
   max_steps: -1
   min_steps: null
@@ -152,6 +152,11 @@ model:
     random_weights: false
     any_severe_spinal_t: 0.0
     ordinal: false
+    gamma: 2.0
+    weights:
+    - 1.0
+    - 2.0
+    - 4.0
     tta_count: 1
     optimizer:
       class_path: src.ranger.Ranger

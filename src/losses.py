@@ -16,10 +16,11 @@ class LumbarLoss(torch.nn.Module):
         any_severe_spinal_smoothing: float = 0,
         any_severe_spinal_t: float = 0,
         random_weights: bool = False,
+        weights: tuple[float, float, float] | None = (1.0, 2.0, 4.0),
     ):
         super().__init__()
-
-        weight = torch.tensor([1.0, 2.0, 4.0])
+        weight = torch.tensor(weights) if weights is not None else torch.tensor([1.0, 2.0, 4.0])
+        print(f"Using weights: {weight}")
         if ordinal:
             self.cond_loss = OrdinalCrossEntropyLoss(3, ignore_index=-1, weight=weight)
             self.any_severe_spinal_loss = BCEWithLogitsLossSmoothed(any_severe_spinal_smoothing, reduction="none")
@@ -27,6 +28,7 @@ class LumbarLoss(torch.nn.Module):
             self.cond_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, weight=weight)
             self.any_severe_spinal_loss = BCEWithLogitsLossSmoothed(any_severe_spinal_smoothing, reduction="none")
         else:
+            print("Using Focal Loss")
             self.cond_loss = FocalLoss(gamma, ignore_index=-1, weight=weight)
             self.any_severe_spinal_loss = FocalLoss(gamma, reduction="none", binary=True)
 

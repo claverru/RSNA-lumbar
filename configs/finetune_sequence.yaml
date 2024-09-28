@@ -30,7 +30,7 @@ trainer:
       preds_name: preds.parquet
   - class_path: src.callbacks.CustomBackboneFinetuning
     init_args:
-      unfreeze_at_epoch: 0
+      unfreeze_at_epoch: 1
       unfreeze_bn: true
       backbone_names:
       - backbone
@@ -43,6 +43,7 @@ model:
   class_path: src.sequence.model.LightningModule
   init_args:
     train_any_severe_spinal: true
+    add_mid_attention: true
     optimizer:
       class_path: src.ranger.Ranger
       init_args:
@@ -52,7 +53,14 @@ model:
       init_args:
         warmup_steps: 98
         last_epoch: -1
-    ckpt_path: lightning_logs/version_1/checkpoints/epoch=7_val_loss=0.3716.ckpt
+    ckpt_path: null
+    mask_dropout_p: 0.0
+    gamma: 0.0
+    weights:
+    - 1.0
+    - 2.0
+    - 4.0
+  
 data:
   class_path: src.sequence.data_loading.DataModule
   init_args:

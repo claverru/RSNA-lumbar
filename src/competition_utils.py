@@ -29,7 +29,7 @@ def studypreds2submission(df: pd.DataFrame, temperature: float = 1.0) -> pd.Data
     df = df.pivot_table(index=["study_id", "condition_level"], columns=["severity"], values="value").reset_index()
     df = df.rename(columns=F2SEVERITIES)
     df["row_id"] = df.pop("study_id").astype(str) + "_" + df.pop("condition_level")
-    df[COMP_SEVERITIES] = softmax(df[COMP_SEVERITIES])
+    df[COMP_SEVERITIES] = softmax(df[COMP_SEVERITIES], temperature)
     df = df.sort_values("row_id").reset_index(drop=True)
     return df
 
@@ -76,7 +76,6 @@ def score(
     solution["study_id"] = solution["row_id"].apply(lambda x: x.split("_")[0])
     solution["location"] = solution["row_id"].apply(lambda x: "_".join(x.split("_")[1:]))
     solution["condition"] = solution["row_id"].apply(get_condition)
-
     del solution[row_id_column_name]
     del submission[row_id_column_name]
     assert sorted(submission.columns) == sorted(target_levels)

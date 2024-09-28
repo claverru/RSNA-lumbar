@@ -14,10 +14,10 @@ class MaskDropout(torch.nn.Module):
         super().__init__(**kwargs)
         self.p = p
 
-    def forward(self, mask):
-        if self.training:
-            drop_mask = torch.rand(mask, device=mask.device) < self.p
-            return mask & drop_mask
+    def forward(self, mask, is_training: bool = True):
+        if is_training:
+            keep_mask = torch.rand(mask.shape, device=mask.device) > self.p
+            return mask & keep_mask
         else:
             return mask
 
@@ -56,6 +56,28 @@ class LearnablePositionEncoding(torch.nn.Module):
 
     def forward(self, x):
         return x + self.encoding
+    
+
+class MidAttentionLayer(torch.nn.Module):
+    def __init__(self, emb_dim, n_heads, att_dropout, seq_length: int):
+        super().__init__()
+        self.decoder_layer = torch.nn.TransformerDecoderLayer(
+            d_model=emb_dim,
+            nhead=n_heads,
+            dim_feedforward=emb_dim * 4,
+            dropout=att_dropout,
+            activation='gelu',
+            batch_first=True,
+            norm_first=True,
+        )
+        self.positional_encoding = LearnablePositionEncoding(seq_length, emb_dim)
+    
+    def forward(self, feats):
+        # feats shape: (batch_size, seq_length, emb_dim)
+        feats = self.positional_encoding(feats)
+        # Use feats as both target and memory to apply self-attention and cross-attention
+        output = self.decoder_layer(tgt=feats, memory=feats)
+        return output
 
 
 class LightningModule(model.LightningModule):
@@ -80,6 +102,9 @@ class LightningModule(model.LightningModule):
         any_severe_spinal_t: float = 0,
         ordinal: bool = False,
         tta_count: int = 1,
+        mask_dropout_p: float = 0.5,
+        gamma: float = 0.0,
+        weights: tuple[float, float, float] | None = (1.0, 2.0, 4.0),
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -90,6 +115,8 @@ class LightningModule(model.LightningModule):
             random_weights=random_weights,
             any_severe_spinal_t=any_severe_spinal_t,
             ordinal=ordinal,
+            gamma=gamma,
+            weights=weights,
         )
         self.val_metric = losses.LumbarMetric("spinal_canal_stenosis" in conditions, conditions=conditions)
         self.backbone = backbone
@@ -123,10 +150,11 @@ class LightningModule(model.LightningModule):
         )
 
         if add_mid_attention:
-            self.mid_attention = torch.nn.Sequential(
-                LearnablePositionEncoding(len(conditions) * len(constants.LEVELS_SIDES), emb_dim),
-                model.get_encoder(emb_dim, n_heads, 1, att_dropout),
-            )
+            # self.mid_attention = torch.nn.Sequential(
+            #     LearnablePositionEncoding(len(conditions) * len(constants.LEVELS_SIDES), emb_dim),
+            #     model.get_encoder(emb_dim, n_heads, 1, att_dropout),
+            # )
+            self.mid_attention = MidAttentionLayer(emb_dim, n_heads, att_dropout, len(conditions) * len(constants.LEVELS_SIDES))
 
         else:
             self.mid_attention = None
@@ -139,15 +167,17 @@ class LightningModule(model.LightningModule):
         self.cls_emb = CLSEmbedding(len(self.conditions), emb_dim)
 
         self.tta_count = tta_count
+        self.mask_dropout = MaskDropout(p=mask_dropout_p)
         self.train_tf = get_aug_transforms(tta=False)
         self.tta_tf = get_aug_transforms(tta=True)
         self.val_tf = get_transforms()
 
         self.maybe_restore_checkpoint()
-
+            
     def extract_features(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         true_mask = mask.logical_not()
         B, T, C, H, W = x.shape
+        true_mask = self.mask_dropout(true_mask, is_training=self.training)
         filter_x = x[true_mask]
         filter_feats: torch.Tensor = self.backbone(filter_x)
         feats = torch.zeros((B, T, filter_feats.shape[-1]), device=filter_feats.device, dtype=filter_feats.dtype)
@@ -260,10 +290,14 @@ class LightningModule(model.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         images, meta, mask = batch
-        tf = self.tta_tf if self.tta_count > 1 else self.val_tf
-        preds = []
-        for _ in range(self.tta_count):
-            aug_image = self.apply_transforms(images, tf)
+        pure_image = self.apply_transforms(images, self.val_tf)
+        pure_pred = self.forward(pure_image, meta, mask)
+        if self.tta_count <= 1:
+            return pure_pred
+
+        preds = [pure_pred]
+        for _ in range(self.tta_count-1):
+            aug_image = self.apply_transforms(images, self.tta_tf)
             pred = self.forward(aug_image, meta, mask)
             preds.append(pred)
         preds = utils.cat_tensors(preds, f=lambda x: sum(x) / len(x))
