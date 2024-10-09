@@ -97,7 +97,7 @@ model:
     img_size: 448
     pretrained: true
     optimizer:
-      class_path: src.ranger.Ranger
+      class_path: src.optimizers.Ranger
       init_args:
         lr: 0.001
         alpha: 0.5

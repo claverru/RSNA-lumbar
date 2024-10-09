@@ -44,7 +44,7 @@ model:
   init_args:
     train_any_severe_spinal: true
     optimizer:
-      class_path: src.ranger.Ranger
+      class_path: src.optimizers.Ranger
       init_args:
         lr: 1.0e-05
     lr_scheduler:

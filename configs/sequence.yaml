@@ -133,7 +133,7 @@ model:
     feats_dropout: 0.1
     any_severe_spinal_t: 0.0
     optimizer:
-      class_path: src.ranger.Ranger
+      class_path: src.optimizers.Ranger
       init_args:
         lr: 0.0002
         alpha: 0.5

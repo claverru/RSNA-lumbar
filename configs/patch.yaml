@@ -106,7 +106,7 @@ model:
     do_any_severe_spinal: false
     gamma: 0.0
     optimizer:
-      class_path: src.ranger.Ranger
+      class_path: src.optimizers.Ranger
       init_args:
         lr: 0.001
         alpha: 0.5
